@@ -45,6 +45,46 @@ inline StereoStats computeStereoStats(const float* l, const float* r, std::size_
     return st;
 }
 
+/** Plain-language reading of the stereo image, used by the vectorscope. */
+enum class StereoImage { Silent, Mono, LeftOnly, RightOnly, Stereo, Wide, PhaseIssue, Inverted };
+
+/** Classification thresholds:
+      silent      both RMS below -70 dBFS
+      left/right  one channel >= 30 dB louder than the other (|balance| >= 0.94)
+      mono        correlation >= 0.98 and width <= 0.05 (L and R practically identical)
+      inverted    correlation <= -0.98 and width >= 0.95 (L = -R)
+      phase issue correlation < -0.2 (mono sum loses energy)
+      wide        -0.2 <= correlation < 0.3 (uncorrelated / very wide)
+      stereo      otherwise (positively correlated, mono-compatible) */
+inline StereoImage classifyStereo(const StereoStats& s) noexcept
+{
+    constexpr float silent = 3.16e-4f; // -70 dBFS
+    if (s.rmsL < silent && s.rmsR < silent) return StereoImage::Silent;
+    if (s.balance <= -0.94f) return StereoImage::LeftOnly;
+    if (s.balance >=  0.94f) return StereoImage::RightOnly;
+    if (s.correlation >= 0.98f && s.width <= 0.05f) return StereoImage::Mono;
+    if (s.correlation <= -0.98f && s.width >= 0.95f) return StereoImage::Inverted;
+    if (s.correlation < -0.2f) return StereoImage::PhaseIssue;
+    if (s.correlation < 0.3f) return StereoImage::Wide;
+    return StereoImage::Stereo;
+}
+
+inline const char* describe(StereoImage i) noexcept
+{
+    switch (i)
+    {
+        case StereoImage::Silent:     return "No signal";
+        case StereoImage::Mono:       return "Mono";
+        case StereoImage::LeftOnly:   return "Left channel only";
+        case StereoImage::RightOnly:  return "Right channel only";
+        case StereoImage::Stereo:     return "Stereo - mono compatible";
+        case StereoImage::Wide:       return "Wide / uncorrelated";
+        case StereoImage::PhaseIssue: return "Phase conflict - mono loss";
+        case StereoImage::Inverted:   return "Phase inverted - cancels in mono";
+    }
+    return "";
+}
+
 // ---------------------------------------------------------------------------
 // Oscilloscope trigger
 // ---------------------------------------------------------------------------

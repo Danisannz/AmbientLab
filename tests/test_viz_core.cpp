@@ -145,3 +145,36 @@ TEST_CASE("Log frequency mapping round-trips")
     for (float f : { 20.0f, 100.0f, 1000.0f, 20000.0f })
         REQUIRE(logFreq(logPos(f, 20.0f, 20000.0f), 20.0f, 20000.0f) == Approx(f).epsilon(1e-4));
 }
+
+TEST_CASE("Stereo image classification: mono, inverted, wide, uncorrelated, one-sided, silent")
+{
+    const size_t n = 9600;
+    std::vector<float> l(n), r(n);
+    unsigned seed = 12345u;
+    auto noise = [&seed] { seed = seed * 1664525u + 1013904223u; return float(int(seed >> 9) - (1 << 22)) / float(1 << 22); };
+
+    for (size_t i = 0; i < n; ++i) l[i] = 0.5f * std::sin(float(i) * 0.031f);
+
+    r = l; // mono
+    REQUIRE(classifyStereo(computeStereoStats(l.data(), r.data(), n)) == StereoImage::Mono);
+
+    for (size_t i = 0; i < n; ++i) r[i] = -l[i]; // polarity inverted
+    REQUIRE(classifyStereo(computeStereoStats(l.data(), r.data(), n)) == StereoImage::Inverted);
+
+    for (size_t i = 0; i < n; ++i) { l[i] = 0.3f * noise(); r[i] = 0.3f * noise(); } // uncorrelated
+    REQUIRE(classifyStereo(computeStereoStats(l.data(), r.data(), n)) == StereoImage::Wide);
+
+    for (size_t i = 0; i < n; ++i) { const float c = 0.3f * noise(); l[i] = c + 0.1f * noise(); r[i] = c + 0.1f * noise(); } // stereo, mostly common
+    REQUIRE(classifyStereo(computeStereoStats(l.data(), r.data(), n)) == StereoImage::Stereo);
+
+    for (size_t i = 0; i < n; ++i) { const float c = 0.3f * noise(); l[i] = c + 0.15f * noise(); r[i] = -c + 0.15f * noise(); } // partly anti-phase
+    REQUIRE(classifyStereo(computeStereoStats(l.data(), r.data(), n)) == StereoImage::PhaseIssue);
+
+    for (size_t i = 0; i < n; ++i) { l[i] = 0.3f * noise(); r[i] = 0.0f; }
+    REQUIRE(classifyStereo(computeStereoStats(l.data(), r.data(), n)) == StereoImage::LeftOnly);
+    REQUIRE(classifyStereo(computeStereoStats(r.data(), l.data(), n)) == StereoImage::RightOnly);
+
+    std::fill(l.begin(), l.end(), 0.0f);
+    std::fill(r.begin(), r.end(), 0.0f);
+    REQUIRE(classifyStereo(computeStereoStats(l.data(), r.data(), n)) == StereoImage::Silent);
+}

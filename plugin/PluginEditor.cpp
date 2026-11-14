@@ -183,7 +183,7 @@ void AmbientEditor::buildPages()
     // ---- SEQUENCER ---------------------------------------------------------------
     auto& seq = pages[3];
     seq.add("Step sequencer", Glyph::Sequencer, 0, 0)
-        .setPlaceholder("16/32 steps with gates, probability, ratchets, swing and parameter locks", 7);
+        .setPlaceholder("16/32 steps, gates, probability, ratchets, parameter locks and scale mode (16 scales, LFO-modulatable scale and root)", 7);
 }
 
 void AmbientEditor::setScale(float s)

@@ -51,7 +51,7 @@ public:
     const float* getScopeRight() const noexcept { return scopeR.data(); }
     int getScopeLength() const noexcept { return scopeLen; }
 
-    /** Latest frames for the vectorscope. */
+    /** Frames received since the previous update (max setVectorscopeFrames) for the vectorscope. */
     const float* getVectorLeft()  const noexcept { return capL.data() + (capLen - vecLen); }
     const float* getVectorRight() const noexcept { return capR.data() + (capLen - vecLen); }
     int getVectorLength() const noexcept { return vecLen; }
@@ -70,7 +70,7 @@ private:
     TriggerMode triggerMode = TriggerMode::Rising;
     float triggerLevel = 0.0f;
     TriggerSource triggerSource = TriggerSource::Mono;
-    int vectorFrames = 2048;
+    int vectorFrames = 8192;
 
     SpectrumAnalyser spec;
     StereoStats stats;

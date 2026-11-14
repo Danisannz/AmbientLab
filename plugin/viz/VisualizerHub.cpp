@@ -32,6 +32,7 @@ bool VisualizerHub::update(float dtSeconds)
 
     const uint64_t w = ring.getWritePosition();
     if (w == lastWritePos) return false; // transport stopped / no audio flowing
+    const uint64_t newFrames = lastWritePos == 0 ? uint64_t(vectorFrames) : w - lastWritePos;
     lastWritePos = w;
 
     // How much history each view needs. The scope gets 2x its window so the
@@ -50,7 +51,8 @@ bool VisualizerHub::update(float dtSeconds)
     const int statN = juce::jmin(need, juce::jmax(256, int(0.05 * sampleRate)));
     stats = computeStereoStats(capL.data() + (need - statN), capR.data() + (need - statN), size_t(statN));
 
-    vecLen = juce::jmin(vectorFrames, need);
+    // Vectorscope draws only frames it has not drawn before (persistence does the rest).
+    vecLen = int(juce::jmin<uint64_t>(newFrames, uint64_t(juce::jmin(vectorFrames, need))));
 
     if (mode == AnalyzerMode::Scope)
     {

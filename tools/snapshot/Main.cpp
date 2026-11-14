@@ -20,6 +20,7 @@ struct Shot
 };
 
 /** Stereo test programme: synth chord via MIDI + a decorrelated pad/noise on the sidechain. */
+int gSignal = 0;
 void runAudio(AmbientProcessor& proc, double seconds, double sr, int block, juce::Random& rng, double& phase)
 {
     juce::AudioBuffer<float> buf(2, block);
@@ -37,6 +38,8 @@ void runAudio(AmbientProcessor& proc, double seconds, double sr, int block, juce
             buf.setSample(0, i, pad * (0.8f + 0.2f * lfo) + n);
             buf.setSample(1, i, pad * (0.8f - 0.2f * lfo) * 0.9f
                                 + 0.12f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 220.5 * t)) - n);
+            if (gSignal == 1) buf.setSample(1, i, buf.getSample(0, i));
+            if (gSignal == 2) buf.setSample(1, i, -buf.getSample(0, i));
             phase += 1.0;
         }
         proc.processBlock(buf, midi);
@@ -67,6 +70,9 @@ int main(int argc, char** argv)
         { "wide_1600x800",    0, 0, false, 1600, 800 },
         { "standard_quality", 0, 2, false, 1280, 800, 0 },
         { "scope_split_500ms", 0, 0, true, 1280, 800, 1, { { "sc_view", 3 }, { "sc_time", 500.0 }, { "sc_persist", 0.0 } } },
+        { "stereo_lr_docked", 1, 1, false, 1280, 800, 1, { { "vs_display", 1 } } },
+        { "stereo_mono_input", 0, 1, true, 1280, 800, 1, { { "test_signal", 1 } } },
+        { "stereo_inverted",   0, 1, true, 1280, 800, 1, { { "test_signal", 2 } } },
         { "scope_mono_falling", 0, 0, false, 1280, 800, 1, { { "sc_view", 4 }, { "sc_time", 8.0 }, { "sc_trig", 2 }, { "sc_level", 0.2 }, { "sc_gain", 2.0 } } },
     };
     if (argc > 3) // optional filter: only shots whose name contains argv[3]
@@ -90,7 +96,14 @@ int main(int argc, char** argv)
         st.setProperty("an_mode", s.analyzerMode, nullptr);
         st.setProperty("an_expanded", s.expanded, nullptr);
         st.setProperty("quality", s.quality, nullptr);
-        for (auto& [k, v] : s.extra) st.setProperty(juce::Identifier(k), v, nullptr);
+        gSignal = 0;
+        for (auto& [k, v] : s.extra)
+        {
+            if (k == "test_signal") { gSignal = int(v); continue; }
+            st.setProperty(juce::Identifier(k), v, nullptr);
+        }
+        if (gSignal != 0) // only the sidechain test signal, no synth (exact mono / inverted)
+            if (auto* p = proc.apvts.getParameter("global.sourceMix")) p->setValueNotifyingHost(1.0f);
 
         // MIDI chord for the test synth
         juce::MidiBuffer chord;
@@ -102,6 +115,8 @@ int main(int argc, char** argv)
 
         std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
         ed->setSize(s.width, s.height);
+        ed->setOpaque(true);
+        ed->addToDesktop(juce::ComponentPeer::windowIsTemporary); // real on-screen painting (Xvfb)
         ed->setVisible(true);
 
         juce::Random rng(1234);

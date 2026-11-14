@@ -1,0 +1,37 @@
+# AmbientLab roadmap
+
+Development stages (DSP) and the requirements captured for each. Interface
+placeholders show the stage number; no control appears before its engine exists.
+
+| Stage | Scope | Status |
+|---|---|---|
+| 1 | Project foundation, VST3 Instrument + FX, state versioning | Done |
+| UI | Interface redesign, analyzer (scope, vectorscope, spectrum) | In progress |
+| 2 | Oscillators, sub, noise, filter, envelopes | Planned |
+| 3 | Granular engine | Planned |
+| 4 | Reverb algorithms | Planned |
+| 5 | Delay algorithms | Planned |
+| 6 | Four LFOs + 32-slot modulation matrix | Planned |
+| 7 | Step sequencer | Planned |
+| 8 | Flexible routing + stereo engine | Planned |
+| 10 | Presets, optimization, validation | Planned |
+
+## Stage 7 - sequencer: additional requirements (requested 2026-11-14)
+
+**Scale mode (pitch quantisation)**
+- Pitch steps are quantised to a selectable scale and root note.
+- At least 12 scales. Planned set (16): Chromatic, Major (Ionian), Natural minor
+  (Aeolian), Harmonic minor, Melodic minor, Dorian, Phrygian, Lydian, Mixolydian,
+  Locrian, Major pentatonic, Minor pentatonic, Blues, Whole tone, Hirajoshi,
+  Phrygian dominant.
+- Root: C .. B (12 values).
+- Quantisation applied to the final pitch (step value + transpose + modulation),
+  so modulated pitch stays in key.
+
+**Modulatable scale and root**
+- `seq.scale` and `seq.root` are exposed as modulation destinations, so any LFO
+  (or other source) can be mapped to them in the matrix (Stage 6).
+- Discrete destinations: the modulated value is quantised to a scale index /
+  semitone and only changes on step boundaries (no mid-note retuning), with an
+  option to change only at pattern start.
+- Both are also host-automatable parameters with stable IDs.
