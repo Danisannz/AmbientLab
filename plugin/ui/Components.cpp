@@ -273,11 +273,14 @@ void ModuleCard::paint(juce::Graphics& g)
     g.drawText(title, juce::Rectangle<float>(tx, hdr.getY(), hdr.getRight() - tx - 8.0f, hh), juce::Justification::centredLeft);
 
     // Status LED at the right of the header
+    if (headerLed)
+    {
     const float led = 6.0f * scale;
     const auto ledR = juce::Rectangle<float>(led, led).withCentre({ hdr.getRight() - 14.0f * scale, hdr.getCentreY() });
     if (lit) { g.setColour(uv.withAlpha(0.3f)); g.fillEllipse(ledR.expanded(2.5f * scale)); }
     g.setColour(lit ? uv : edgeHi.withAlpha(0.6f));
     g.fillEllipse(ledR);
+    }
 
     // Placeholder: glyph, description, stage badge. No controls.
     if (isPlaceholder())
@@ -309,6 +312,50 @@ void ModuleCard::paint(juce::Graphics& g)
             g.drawText(label, badge, juce::Justification::centred);
         }
     }
+}
+
+juce::Rectangle<int> ModuleCard::getHeaderControlBounds() const
+{
+    const int hh = int(cardHeader * scale);
+    const int sz = hh - int(8 * scale);
+    return { getWidth() - int(8 * scale) - sz, (hh - sz) / 2, sz, sz };
+}
+
+// ============================================================================
+// BypassButton
+// ============================================================================
+BypassButton::BypassButton(const juce::String& moduleName) : ToggleButton("Bypass " + moduleName)
+{
+    setTooltip("Bypass " + moduleName.toLowerCase());
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+}
+
+void BypassButton::paintButton(juce::Graphics& g, bool hi, bool down)
+{
+    auto r = getLocalBounds().toFloat().reduced(0.5f);
+    const bool bypassed = getToggleState();
+    const auto col = bypassed ? (hi ? theme::textDim : theme::textFaint) : theme::lime;
+
+    if (hi || down)
+    {
+        g.setColour(theme::panelTop.brighter(down ? 0.15f : 0.08f));
+        g.fillRoundedRectangle(r, 3.0f);
+    }
+    if (! bypassed)
+    {
+        g.setColour(theme::lime.withAlpha(0.12f));
+        g.fillEllipse(r.reduced(r.getWidth() * 0.12f));
+    }
+
+    // power symbol: open ring + vertical stroke
+    const auto c = r.getCentre();
+    const float R = r.getWidth() * 0.27f;
+    juce::Path ring;
+    ring.addCentredArc(c.x, c.y + R * 0.08f, R, R, 0.0f, juce::degreesToRadians(35.0f), juce::degreesToRadians(325.0f), true);
+    ring.startNewSubPath(c.x, c.y - R * 1.15f);
+    ring.lineTo(c.x, c.y - R * 0.1f);
+    g.setColour(col);
+    g.strokePath(ring, juce::PathStrokeType(juce::jmax(1.3f, r.getWidth() * 0.08f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 }
 
 // ============================================================================

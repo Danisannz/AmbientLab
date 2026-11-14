@@ -56,7 +56,7 @@ private:
 
     // Real controls (only parameters that exist)
     std::unique_ptr<ambient::ui::RotaryKnob> inputKnob, mixKnob;
-    juce::ToggleButton bypassSynth { "Bypass synth" };
+    ambient::ui::BypassButton bypassSynth { "Synth" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
 
     ambient::ui::ModuleCard macroCard { "Macros" };

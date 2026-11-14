@@ -63,7 +63,7 @@ int ControlChip::getPreferredWidth() const
     if (continuous) vw = juce::jmax(textWidth(vf, format ? format(minV) : "0.00"), textWidth(vf, format ? format(maxV) : "0.00"),
                                     textWidth(vf, valueText()));
     else for (auto& c : choices) vw = juce::jmax(vw, textWidth(vf, c));
-    return juce::roundToInt(lw + vw + (continuous ? 22.0f : 30.0f));
+    return juce::roundToInt(lw + vw + (continuous ? 30.0f : 36.0f));
 }
 
 void ControlChip::paint(juce::Graphics& g)

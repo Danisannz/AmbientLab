@@ -61,6 +61,10 @@ public:
     void setActive(bool a) { active = a; repaint(); }
     void setScale(float s) { scale = s; repaint(); }
     void setGlyph(Glyph g) { glyph = g; repaint(); }
+    /** Hide the header status LED (e.g. when a header button takes its place). */
+    void setHeaderLedVisible(bool v) { headerLed = v; repaint(); }
+    /** Square slot at the right end of the header for a small header control. */
+    juce::Rectangle<int> getHeaderControlBounds() const;
 
     /** Area below the header available to children. */
     juce::Rectangle<int> getContentBounds() const;
@@ -71,8 +75,19 @@ private:
     juce::String title, placeholder;
     Glyph glyph = Glyph::None;
     int stage = 0;
-    bool active = true;
+    bool active = true, headerLed = true;
     float scale = 1.0f;
+};
+
+// ============================================================================
+/** Minimal power-symbol bypass button for card headers. The toggle state is the
+    *bypass* state (attach it to a bypass parameter): the symbol glows lime while
+    the module is running and dims when bypassed. */
+class BypassButton : public juce::ToggleButton
+{
+public:
+    explicit BypassButton(const juce::String& moduleName);
+    void paintButton(juce::Graphics&, bool highlighted, bool down) override;
 };
 
 // ============================================================================

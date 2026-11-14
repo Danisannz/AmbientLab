@@ -29,6 +29,10 @@ public:
     float getScopeTimeMs() const noexcept { return scopeTimeMs; }
     void setTrigger(TriggerMode m, float level) noexcept { triggerMode = m; triggerLevel = level; }
     TriggerMode getTriggerMode() const noexcept { return triggerMode; }
+    float getTriggerLevel() const noexcept { return triggerLevel; }
+    /** Which signal the scope trigger watches. */
+    enum class TriggerSource { Mono = 0, Left, Right };
+    void setTriggerSource(TriggerSource s) noexcept { triggerSource = s; }
 
     /** Number of most-recent stereo frames shown by the vectorscope. */
     void setVectorscopeFrames(int n) noexcept { vectorFrames = juce::jlimit(256, 8192, n); }
@@ -65,6 +69,7 @@ private:
     float scopeTimeMs = 20.0f;
     TriggerMode triggerMode = TriggerMode::Rising;
     float triggerLevel = 0.0f;
+    TriggerSource triggerSource = TriggerSource::Mono;
     int vectorFrames = 2048;
 
     SpectrumAnalyser spec;

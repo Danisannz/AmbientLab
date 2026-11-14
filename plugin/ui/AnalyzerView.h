@@ -43,9 +43,61 @@ protected:
 };
 
 // ============================================================================
+/** Phosphor-style persistence layer: a transparent ARGB image at the physical
+    resolution of the screen area. Each frame it fades by a time-based factor
+    (identical decay at 30 or 60 fps) and new traces are drawn on top. */
+class PersistenceLayer
+{
+public:
+    /** (Re)allocates when the logical area or pixel scale changes. Returns true if reset. */
+    bool ensure(juce::Rectangle<int> logicalArea, float physScale)
+    {
+        const int w = juce::jmax(1, juce::roundToInt(logicalArea.getWidth() * physScale));
+        const int h = juce::jmax(1, juce::roundToInt(logicalArea.getHeight() * physScale));
+        if (image.isValid() && image.getWidth() == w && image.getHeight() == h && area == logicalArea) return false;
+        image = juce::Image(juce::Image::ARGB, w, h, true);
+        area = logicalArea; scale = physScale;
+        return true;
+    }
+
+    /** persistence 0 = none, 0.95 = long trails. dt in seconds. */
+    void fade(float persistence, float dt)
+    {
+        if (! image.isValid()) return;
+        if (persistence <= 0.001f) { image.clear(image.getBounds()); return; }
+        const float keep = std::pow(juce::jlimit(0.0f, 0.985f, persistence), dt * 60.0f);
+        image.multiplyAllAlphas(keep);
+    }
+
+    void clear() { if (image.isValid()) image.clear(image.getBounds()); }
+
+    /** Graphics drawing in *logical* coordinates relative to the area origin. */
+    std::unique_ptr<juce::Graphics> context()
+    {
+        auto g = std::make_unique<juce::Graphics>(image);
+        g->addTransform(juce::AffineTransform::scale(scale));
+        return g;
+    }
+
+    void draw(juce::Graphics& g) const
+    {
+        if (image.isValid()) g.drawImage(image, area.toFloat());
+    }
+
+    juce::Image& getImage() noexcept { return image; }
+    float getScale() const noexcept { return scale; }
+    juce::Rectangle<int> getArea() const noexcept { return area; }
+
+private:
+    juce::Image image;
+    juce::Rectangle<int> area;
+    float scale = 1.0f;
+};
+
+// ============================================================================
 /** Compact analyzer control ("chip"): label + value. Click opens a menu of
     choices, or drag/wheel adjusts a continuous value; double-click resets. */
-class ControlChip : public juce::Component
+class ControlChip : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     /** Discrete choice. */

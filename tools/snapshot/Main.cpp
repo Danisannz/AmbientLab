@@ -4,6 +4,7 @@
 
 #include "PluginProcessor.h"
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <algorithm>
 
 namespace
 {
@@ -15,6 +16,7 @@ struct Shot
     bool expanded = false;
     int width = 1280, height = 800;
     int quality = 1;         // 0 standard, 1 high
+    std::vector<std::pair<juce::String, juce::var>> extra {}; // additional UI settings
 };
 
 /** Stereo test programme: synth chord via MIDI + a decorrelated pad/noise on the sidechain. */
@@ -64,7 +66,11 @@ int main(int argc, char** argv)
         { "small_960",        0, 2, false, 960, 600 },
         { "wide_1600x800",    0, 0, false, 1600, 800 },
         { "standard_quality", 0, 2, false, 1280, 800, 0 },
+        { "scope_split_500ms", 0, 0, true, 1280, 800, 1, { { "sc_view", 3 }, { "sc_time", 500.0 }, { "sc_persist", 0.0 } } },
+        { "scope_mono_falling", 0, 0, false, 1280, 800, 1, { { "sc_view", 4 }, { "sc_time", 8.0 }, { "sc_trig", 2 }, { "sc_level", 0.2 }, { "sc_gain", 2.0 } } },
     };
+    if (argc > 3) // optional filter: only shots whose name contains argv[3]
+        shots.erase(std::remove_if(shots.begin(), shots.end(), [&](const Shot& s) { return ! s.name.contains(argv[3]); }), shots.end());
 
     const double sr = 48000.0;
     const int block = 512;
@@ -84,6 +90,7 @@ int main(int argc, char** argv)
         st.setProperty("an_mode", s.analyzerMode, nullptr);
         st.setProperty("an_expanded", s.expanded, nullptr);
         st.setProperty("quality", s.quality, nullptr);
+        for (auto& [k, v] : s.extra) st.setProperty(juce::Identifier(k), v, nullptr);
 
         // MIDI chord for the test synth
         juce::MidiBuffer chord;

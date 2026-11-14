@@ -136,3 +136,30 @@ TEST_CASE("Hub: pulls from ring, honours freeze, triggered scope window")
     REQUIRE(hub.update(0.016f));
     REQUIRE(std::abs(hub.spectrum().findPeakFrequency() - 480.0f) < 10.0f);
 }
+
+TEST_CASE("Hub: scope trigger source follows the displayed channel")
+{
+    StereoCaptureRing ring(1 << 16);
+    VisualizerHub hub(ring);
+    hub.setSampleRate(48000.0);
+    hub.setMode(AnalyzerMode::Scope);
+    hub.setScopeTimeMs(10.0f);
+    hub.setTrigger(TriggerMode::Rising, 0.0f);
+
+    // L = sine, R = inverted sine: a rising edge on L is a falling edge on R.
+    auto l = sine(480.0, 48000.0, 24000);
+    std::vector<float> r(l.size());
+    for (size_t i = 0; i < l.size(); ++i) r[i] = -l[i];
+    ring.write(l.data(), r.data(), 24000);
+
+    hub.setTriggerSource(VisualizerHub::TriggerSource::Left);
+    REQUIRE(hub.update(0.016f));
+    REQUIRE(std::abs(hub.getScopeLeft()[0]) < 0.07f);
+    REQUIRE(hub.getScopeLeft()[3] > hub.getScopeLeft()[0]);
+
+    hub.setTriggerSource(VisualizerHub::TriggerSource::Right);
+    ring.write(l.data(), r.data(), 512); // new data so the hub analyses again
+    REQUIRE(hub.update(0.016f));
+    REQUIRE(std::abs(hub.getScopeRight()[0]) < 0.07f);
+    REQUIRE(hub.getScopeRight()[3] > hub.getScopeRight()[0]); // rising on R
+}

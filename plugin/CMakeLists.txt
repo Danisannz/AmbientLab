@@ -11,6 +11,7 @@ set(AMBIENT_PLUGIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/HeaderBar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/AnalyzerView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/AnalyzerViews.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/ScopeView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/AnalyzerPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/viz/SpectrumAnalyser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/viz/VisualizerHub.cpp

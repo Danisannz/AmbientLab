@@ -58,8 +58,11 @@ bool VisualizerHub::update(float dtSeconds)
         const int win = juce::jmin(scopeWindow, n);
         const float* srcL = capL.data() + (need - n);
         const float* srcR = capR.data() + (need - n);
-        for (int i = 0; i < n; ++i) mono[size_t(i)] = 0.5f * (srcL[i] + srcR[i]);
-        const size_t start = findTrigger(mono.data(), size_t(n), size_t(win), triggerMode, triggerLevel);
+        const float* trig = mono.data();
+        if (triggerSource == TriggerSource::Left) trig = srcL;
+        else if (triggerSource == TriggerSource::Right) trig = srcR;
+        else for (int i = 0; i < n; ++i) mono[size_t(i)] = 0.5f * (srcL[i] + srcR[i]);
+        const size_t start = findTrigger(trig, size_t(n), size_t(win), triggerMode, triggerLevel);
         std::copy(srcL + start, srcL + start + win, scopeL.begin());
         std::copy(srcR + start, srcR + start + win, scopeR.begin());
         scopeLen = win;

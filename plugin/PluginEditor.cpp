@@ -142,17 +142,16 @@ void AmbientEditor::buildPages()
     mixKnob = std::make_unique<RotaryKnob>(proc.apvts, id(ids::sourceMix), "Synth / Input");
     io.addAndMakeVisible(*mixKnob);
     io.addAndMakeVisible(bypassSynth);
+    io.setHeaderLedVisible(false);
     bypassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(proc.apvts, id(ids::bypassSynth), bypassSynth);
 #endif
 
     sound.layoutContents = [this, &io]
     {
-        // Knobs shrink before anything overlaps; the toggle keeps its measured width.
+        // Knobs shrink before anything overlaps.
         auto c = io.getContentBounds().reduced(4, 0);
-        const int toggleW = juce::roundToInt(theme::textWidth(theme::body(12.5f, theme::Weight::Medium), bypassSynth.getButtonText())) + 48;
         const int knobs = mixKnob ? 2 : 1;
-        const int fixed = 8 + (knobs - 1) * 12 + (mixKnob ? 22 + toggleW : 0);
-        const int perKnob = (c.getWidth() - fixed) / knobs;
+        const int perKnob = (c.getWidth() - 8 - (knobs - 1) * 16) / knobs;
         const int d = juce::jlimit(36, 72, juce::jmin(perKnob - 28, c.getHeight() - 40));
         const int kh = RotaryKnob::heightFor(d, false), kw = d + 28;
         auto row = c.withSizeKeepingCentre(c.getWidth(), juce::jmin(c.getHeight(), kh));
@@ -160,10 +159,9 @@ void AmbientEditor::buildPages()
         inputKnob->setBounds(row.removeFromLeft(kw));
         if (mixKnob)
         {
-            row.removeFromLeft(12);
+            row.removeFromLeft(16);
             mixKnob->setBounds(row.removeFromLeft(kw));
-            row.removeFromLeft(22);
-            bypassSynth.setBounds(row.removeFromLeft(toggleW).withSizeKeepingCentre(toggleW, 26));
+            bypassSynth.setBounds(io.getHeaderControlBounds()); // small power button, header top-right
         }
     };
 
