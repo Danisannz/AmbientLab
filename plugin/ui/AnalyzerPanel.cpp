@@ -63,8 +63,8 @@ void AnalyzerPanel::paint(juce::Graphics& g)
     auto hdr = r.withHeight(float(cardHeader));
     {
         juce::Graphics::ScopedSaveState s(g);
-        juce::Path clip; clip.addRoundedRectangle(r, cornerRadius);
-        g.reduceClipRegion(clip);
+        juce::Path cardShape; cardShape.addRoundedRectangle(r, cornerRadius);
+        g.reduceClipRegion(cardShape);
         g.setColour(panelHdr);
         g.fillRect(hdr);
     }

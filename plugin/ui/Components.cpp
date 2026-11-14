@@ -91,8 +91,8 @@ void ModuleCard::paint(juce::Graphics& g)
     auto hdr = r.withHeight(hh);
     {
         juce::Graphics::ScopedSaveState s(g);
-        juce::Path clip; clip.addRoundedRectangle(r, rad);
-        g.reduceClipRegion(clip);
+        juce::Path cardShape; cardShape.addRoundedRectangle(r, rad);
+        g.reduceClipRegion(cardShape);
         g.setColour(panelHdr);
         g.fillRect(hdr);
         g.setColour(bgDeep.withAlpha(0.8f));
