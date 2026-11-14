@@ -4,15 +4,26 @@ set(AMBIENT_PLUGIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/PluginEditor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Parameters.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/StateMigration.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/Fonts.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/Backdrop.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/AmbientLookAndFeel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/Components.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/HeaderBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/AnalyzerView.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/AnalyzerViews.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/AnalyzerPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/viz/SpectrumAnalyser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/viz/VisualizerHub.cpp
 )
+set(AMBIENT_PLUGIN_SOURCES ${AMBIENT_PLUGIN_SOURCES} PARENT_SCOPE)
 
-juce_add_binary_data(AmbientLabAssets SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/assets/logo.png)
+juce_add_binary_data(AmbientLabAssets SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets/logo.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/SpaceGrotesk-Medium.ttf
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/SpaceGrotesk-Bold.ttf
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/IBMPlexSans-Regular.ttf
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/IBMPlexSans-Medium.ttf
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/IBMPlexSans-SemiBold.ttf)
 set_target_properties(AmbientLabAssets PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 function(ambient_add_plugin TARGET PRODUCT CODE IS_SYNTH)

@@ -7,6 +7,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 option(AMBIENT_BUILD_PLUGINS "Build the JUCE VST3 targets" ON)
 option(AMBIENT_BUILD_TESTS   "Build unit tests"             ON)
+option(AMBIENT_BUILD_SNAPSHOT "Build the headless editor snapshot tool" OFF)
 
 include(FetchContent)
 
@@ -21,6 +22,9 @@ if(AMBIENT_BUILD_PLUGINS)
         GIT_SHALLOW    TRUE)
     FetchContent_MakeAvailable(juce)
     add_subdirectory(plugin)
+    if(AMBIENT_BUILD_SNAPSHOT)
+        add_subdirectory(tools/snapshot)
+    endif()
 endif()
 
 # ---- Tests ------------------------------------------------------------------

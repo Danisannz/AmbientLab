@@ -1,6 +1,6 @@
 #pragma once
-// Reusable AMBIENTLAB UI components. All painting goes through theme:: so
-// panels added with future engines inherit the same visual language.
+// Reusable AMBIENTLAB UI components. All painting goes through theme:: so panels
+// added with future engines inherit the same visual language.
 
 #include "AmbientLookAndFeel.h"
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -10,7 +10,7 @@ namespace ambient::ui
 {
 // ============================================================================
 /** Parameter knob: name above, metallic rotary, live value readout below.
-    Drag = adjust, Shift-drag = fine, double-click = default, Alt/Cmd-click = default. */
+    Drag = adjust, Shift-drag = fine, double-click = reset to default. */
 class RotaryKnob : public juce::Component
 {
 public:
@@ -19,6 +19,9 @@ public:
 
     void setCompact(bool c) { compact = c; resized(); }
     juce::Slider& getSlider() noexcept { return slider; }
+
+    /** Preferred height for a given knob diameter (label + knob + value). */
+    static int heightFor(int diameter, bool compact) { return diameter + (compact ? 34 : 38); }
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -39,18 +42,25 @@ private:
 };
 
 // ============================================================================
+/** Line-art glyphs for module identification (also used on placeholder cards). */
+enum class Glyph { None, Oscillator, Filter, Envelope, Input, Grains, Reverb, Delay, Stereo, Lfo, Matrix, Sequencer, Synth };
+void drawGlyph(juce::Graphics&, Glyph, juce::Rectangle<float>, juce::Colour, float strokeWidth = 1.4f);
+
+// ============================================================================
 /** A module panel: metallic card, header strip with title and state LED.
-    A card with no engine behind it is a *placeholder*: it shows when the engine
-    arrives and contains no controls (nothing fake). */
+    A card with no engine behind it is a *placeholder*: it shows the module's
+    glyph, what it will contain and the development stage that delivers it.
+    It never contains controls. */
 class ModuleCard : public juce::Component
 {
 public:
-    explicit ModuleCard(const juce::String& title);
+    explicit ModuleCard(const juce::String& title, Glyph glyph = Glyph::None);
 
-    void setPlaceholder(const juce::String& message) { placeholder = message; repaint(); }
+    void setPlaceholder(const juce::String& description, int stage = 0);
     bool isPlaceholder() const noexcept { return placeholder.isNotEmpty(); }
     void setActive(bool a) { active = a; repaint(); }
     void setScale(float s) { scale = s; repaint(); }
+    void setGlyph(Glyph g) { glyph = g; repaint(); }
 
     /** Area below the header available to children. */
     juce::Rectangle<int> getContentBounds() const;
@@ -59,6 +69,8 @@ public:
 
 private:
     juce::String title, placeholder;
+    Glyph glyph = Glyph::None;
+    int stage = 0;
     bool active = true;
     float scale = 1.0f;
 };
@@ -80,6 +92,7 @@ public:
 
 private:
     int indexAt(juce::Point<int>) const;
+    int tabWidth() const;
     juce::StringArray names;
     int selected = 0, hovered = -1;
 };
@@ -129,5 +142,21 @@ private:
     struct Ch { float db = -100.0f, hold = -100.0f, holdTime = 0.0f; };
     Ch ch[2];
     static float toY(float db, float top, float height);
+};
+
+// ============================================================================
+/** Horizontal correlation meter, -1 .. +1. Negative = magenta (phase problem),
+    positive = lime. Smoothed display, numeric readout optional. */
+class CorrelationMeter : public juce::Component
+{
+public:
+    void setCorrelation(float c, float dt);
+    void setShowLabels(bool s) { labels = s; repaint(); }
+    void paint(juce::Graphics&) override;
+    float getDisplayed() const noexcept { return shown; }
+
+private:
+    float shown = 0.0f, minHold = 1.0f, minHoldTime = 0.0f;
+    bool labels = true;
 };
 } // namespace ambient::ui

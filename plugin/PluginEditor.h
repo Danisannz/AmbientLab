@@ -1,7 +1,9 @@
 #pragma once
 #include "PluginProcessor.h"
 #include "ui/AnalyzerPanel.h"
+#include "ui/Backdrop.h"
 #include "ui/HeaderBar.h"
+#include "ui/UiSettings.h"
 #include "viz/VisualizerHub.h"
 
 /** AMBIENTLAB editor.
@@ -17,6 +19,7 @@ public:
     void resized() override;
 
     static constexpr int kBaseW = 1280, kBaseH = 800;
+    static constexpr int kMinW = 960, kMinH = 600, kMaxW = 2560, kMaxH = 1600;
 
 private:
     /** A tab page: a grid of module cards. */
@@ -26,7 +29,7 @@ private:
         int cols = 1, rows = 1;
         std::vector<Slot> slots;
         std::function<void()> layoutContents; // positions real controls inside cards
-        ambient::ui::ModuleCard& add(const juce::String& title, int c, int r, int cs = 1, int rs = 1);
+        ambient::ui::ModuleCard& add(const juce::String& title, ambient::ui::Glyph, int c, int r, int cs = 1, int rs = 1);
         void resized() override;
         float scale = 1.0f;
     };
@@ -35,11 +38,15 @@ private:
     void buildPages();
     void setScale(float s);
     void showPage(int index);
+    void setQuality(ambient::ui::GraphicsQuality q);
 
     AmbientProcessor& proc;
+    ambient::ui::UiSettings settings;
     ambient::ui::AmbientLookAndFeel lnf;
-    juce::TooltipWindow tooltips { this, 600 };
+    juce::TooltipWindow tooltips { this, 700 };
     juce::Image logo;
+    ambient::ui::Backdrop backdrop;
+    ambient::ui::GraphicsQuality quality = ambient::ui::GraphicsQuality::High;
 
     ambient::viz::VisualizerHub hub;
     std::unique_ptr<ambient::ui::HeaderBar> header;

@@ -47,7 +47,7 @@ public:
 
     /** Set by the editor; the audio thread only feeds the capture ring while true. */
     std::atomic<bool> editorOpen { false };
-    ambient::StereoCaptureRing captureRing { 1 << 16 };
+    ambient::StereoCaptureRing captureRing { 1 << 18 }; // ~1.4 s at 192 kHz (scope up to 500 ms)
 
     double getCpuLoad() const noexcept { return loadMeasurer.getLoadAsProportion(); }
 
