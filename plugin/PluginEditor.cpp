@@ -43,6 +43,9 @@ AmbientEditor::AmbientEditor(AmbientProcessor& p)
     : AudioProcessorEditor(p), proc(p), settings(p.apvts), hub(p.captureRing)
 {
     setLookAndFeel(&lnf);
+    addAndMakeVisible(content);
+    content.setOpaque(true);
+    content.painter = [this](juce::Graphics& g) { backdrop.draw(g, Backdrop::Region::Window, content.getLocalBounds(), quality); };
     logo = juce::ImageCache::getFromMemory(BinaryData::logo_png, BinaryData::logo_pngSize);
 
     header = std::make_unique<HeaderBar>(proc, logo);
@@ -50,13 +53,13 @@ AmbientEditor::AmbientEditor(AmbientProcessor& p)
     header->onQualityChosen = [this](GraphicsQuality q) { setQuality(q); };
     header->isRenderStatsOn = [this] { return analyzer->isShowingStats(); };
     header->onRenderStatsChanged = [this](bool on) { analyzer->setShowStats(on); };
-    addAndMakeVisible(*header);
+    content.addAndMakeVisible(*header);
 
     tabs.onChange = [this](int i) { showPage(i); };
-    addAndMakeVisible(tabs);
+    content.addAndMakeVisible(tabs);
 
     buildPages();
-    for (auto& pg : pages) addChildComponent(pg);
+    for (auto& pg : pages) content.addChildComponent(pg);
 
     analyzer = std::make_unique<AnalyzerPanel>(hub, settings);
     analyzer->onExpandChanged = [this](bool e)
@@ -66,10 +69,10 @@ AmbientEditor::AmbientEditor(AmbientProcessor& p)
         showPage(tabs.getSelected());
         resized();
     };
-    addAndMakeVisible(*analyzer);
+    content.addAndMakeVisible(*analyzer);
 
     // Macros footer
-    addAndMakeVisible(macroCard);
+    content.addAndMakeVisible(macroCard);
     for (size_t i = 0; i < ids::macros.size(); ++i)
     {
         auto k = std::make_unique<RotaryKnob>(proc.apvts, id(ids::macros[i]), "Macro " + juce::String(int(i) + 1));
@@ -186,6 +189,11 @@ void AmbientEditor::buildPages()
         .setPlaceholder("16/32 steps, gates, probability, ratchets, parameter locks and scale mode (16 scales, LFO-modulatable scale and root)", 7);
 }
 
+void AmbientEditor::setAnalyzerFrozen(bool f)
+{
+    hub.setFrozen(f);
+}
+
 void AmbientEditor::setScale(float s)
 {
     setSize(juce::roundToInt(kBaseW * s), juce::roundToInt(kBaseH * s));
@@ -207,7 +215,7 @@ void AmbientEditor::timerCallback()
 
 void AmbientEditor::paint(juce::Graphics& g)
 {
-    backdrop.draw(g, Backdrop::Region::Window, getLocalBounds(), quality);
+    g.fillAll(theme::bg); // fully covered by `content`
 }
 
 void AmbientEditor::resized()
@@ -215,8 +223,15 @@ void AmbientEditor::resized()
     settings.set(kUiWidth, getWidth());
     settings.set(kUiHeight, getHeight());
 
-    const float s = juce::jlimit(0.85f, 1.35f, float(getWidth()) / float(kBaseW));
-    auto r = getLocalBounds();
+    // Uniform scale: 1x up to 2x, from the smaller of the width/height ratios.
+    // Below the 1280x800 design size nothing shrinks (text stays readable); the
+    // layout reflows instead. Different aspect ratios widen/heighten the canvas.
+    uiScale = juce::jlimit(1.0f, 2.0f, juce::jmin(float(getWidth()) / float(kBaseW), float(getHeight()) / float(kBaseH)));
+    content.setTransform(juce::AffineTransform::scale(uiScale));
+    content.setBounds(0, 0, juce::roundToInt(float(getWidth()) / uiScale), juce::roundToInt(float(getHeight()) / uiScale));
+
+    const float s = 1.0f; // card metrics are now scaled by the transform
+    auto r = content.getLocalBounds();
     header->setBounds(r.removeFromTop(theme::headerHeight));
     tabs.setBounds(r.removeFromTop(theme::tabHeight));
 

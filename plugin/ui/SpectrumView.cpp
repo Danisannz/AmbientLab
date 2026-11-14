@@ -115,9 +115,9 @@ public:
             if (stereo)
             {
                 drawCurve(g, curveB, uvBright, true, 1.4f);
-                drawCurve(g, curveA, lime, false, 1.4f);
+                drawCurve(g, curveA, lime, false, 1.4f, true);
             }
-            else drawCurve(g, curveA, lime, true, 1.5f);
+            else drawCurve(g, curveA, lime, true, 1.5f, true);
         }
         drawPeak(g);
         drawLegend(g);
@@ -169,7 +169,7 @@ private:
         }
     }
 
-    void drawCurve(juce::Graphics& g, const std::vector<float>& c, juce::Colour col, bool fill, float width)
+    void drawCurve(juce::Graphics& g, const std::vector<float>& c, juce::Colour col, bool fill, float width, bool glow = false)
     {
         const int n = int(c.size());
         if (n < 2) return;
@@ -193,13 +193,14 @@ private:
             g.setGradientFill(grad);
             g.fillPath(area);
         }
-        if (quality == GraphicsQuality::High)
+        // Bevel joints: visually identical at ~1 point per pixel, far cheaper to rasterise.
+        if (glow && quality == GraphicsQuality::High)
         {
             g.setColour(col.withMultipliedAlpha(0.16f));
-            g.strokePath(p, juce::PathStrokeType(width * 3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath(p, juce::PathStrokeType(width * 3.0f, juce::PathStrokeType::beveled, juce::PathStrokeType::butt));
         }
         g.setColour(col);
-        g.strokePath(p, juce::PathStrokeType(width, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath(p, juce::PathStrokeType(width, juce::PathStrokeType::beveled, juce::PathStrokeType::butt));
     }
 
     void drawGrid(juce::Graphics& g)
@@ -226,7 +227,7 @@ private:
             if ((-db) % labelStep == 0)
             {
                 g.setColour(textFaint);
-                const float ly = juce::jlimit(pr.getY(), pr.getBottom() - 30.0f, y - 7.0f); // keep clear of edges / "dBFS"
+                const float ly = juce::jmax(pr.getY(), y - 7.0f); // keep the top label inside the screen
                 g.drawText(juce::String(db), juce::Rectangle<float>(pr.getRight() + 4.0f, ly, 30.0f, 14.0f), juce::Justification::centredLeft);
             }
         }

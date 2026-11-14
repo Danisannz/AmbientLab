@@ -3,6 +3,8 @@
 // Usage: AmbientSnapshot <outputDir> [scale]
 
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
+#include <ctime>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <algorithm>
 
@@ -50,9 +52,89 @@ void runAudio(AmbientProcessor& proc, double seconds, double sr, int block, juce
 }
 } // namespace
 
+
+/** Real-time benchmark: editor on a (virtual) desktop, audio paced at real time.
+    Reports analyzer paint time, frame rate and whole-process CPU use. */
+static int runBenchmark(const juce::String& filter)
+{
+    struct Cfg { const char* name; int mode; bool expanded; int quality; bool frozen; };
+    const Cfg cfgs[] = {
+        { "scope    docked   STD", 0, false, 0, false }, { "scope    docked   HQ ", 0, false, 1, false },
+        { "scope    expanded HQ ", 0, true,  1, false },
+        { "stereo   docked   STD", 1, false, 0, false }, { "stereo   docked   HQ ", 1, false, 1, false },
+        { "stereo   expanded HQ ", 1, true,  1, false },
+        { "spectrum docked   STD", 2, false, 0, false }, { "spectrum docked   HQ ", 2, false, 1, false },
+        { "spectrum expanded HQ ", 2, true,  1, false }, { "spectrum expanded HQ frozen", 2, true, 1, true },
+    };
+    const double sr = 48000.0; const int block = 512;
+    std::printf("%-28s %10s %8s %10s\n", "configuration", "paint ms", "fps", "CPU %");
+
+    // Audio-thread cost of capture: processBlock with editor closed vs open.
+    {
+        AmbientProcessor proc; proc.enableAllBuses(); proc.setRateAndBufferSizeDetails(sr, block); proc.prepareToPlay(sr, block);
+        juce::AudioBuffer<float> buf(2, block); juce::MidiBuffer midi; juce::Random rng(1);
+        auto timeBlocks = [&](bool open)
+        {
+            proc.editorOpen.store(open);
+            const int N = 20000;
+            const double t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int b = 0; b < N; ++b)
+            {
+                for (int i = 0; i < block; ++i) { buf.setSample(0, i, rng.nextFloat() - 0.5f); buf.setSample(1, i, rng.nextFloat() - 0.5f); }
+                proc.processBlock(buf, midi);
+            }
+            return (juce::Time::getMillisecondCounterHiRes() - t0) * 1000.0 / N; // us per block
+        };
+        timeBlocks(false);
+        const double closed = timeBlocks(false), opened = timeBlocks(true);
+        std::printf("processBlock (512 frames, incl. test-signal generation): editor closed %.2f us, open (capture) %.2f us\n", closed, opened);
+    }
+
+    for (auto& c : cfgs)
+    {
+        if (filter.isNotEmpty() && ! juce::String(c.name).contains(filter)) continue;
+        AmbientProcessor proc; proc.enableAllBuses(); proc.setRateAndBufferSizeDetails(sr, block); proc.prepareToPlay(sr, block);
+        if (auto* p = proc.apvts.getParameter("global.sourceMix")) p->setValueNotifyingHost(0.6f);
+        auto st = proc.apvts.state.getOrCreateChildWithName("UI", nullptr);
+        st.setProperty("an_mode", c.mode, nullptr); st.setProperty("an_expanded", c.expanded, nullptr);
+        st.setProperty("quality", c.quality, nullptr);
+        juce::MidiBuffer chord; for (int note : { 57, 64, 69, 72 }) chord.addEvent(juce::MidiMessage::noteOn(1, note, 0.8f), 0);
+        juce::AudioBuffer<float> tmp(2, block); tmp.clear(); proc.processBlock(tmp, chord);
+
+        std::unique_ptr<AmbientEditor> ed(dynamic_cast<AmbientEditor*>(proc.createEditor()));
+        ed->setSize(1280, 800); ed->setOpaque(true);
+        ed->addToDesktop(juce::ComponentPeer::windowIsTemporary); ed->setVisible(true);
+        if (c.frozen) { juce::Random r0(3); double ph0 = 0; runAudio(proc, 0.5, sr, block, r0, ph0); ed->setAnalyzerFrozen(true); }
+
+        juce::Random rng(1234); double phase = 0.0;
+        // warm-up then measure 3 s at real-time pace
+        auto paced = [&](double seconds)
+        {
+            const double start = juce::Time::getMillisecondCounterHiRes();
+            int blocks = 0;
+            while (juce::Time::getMillisecondCounterHiRes() - start < seconds * 1000.0)
+            {
+                const double due = start + blocks * block * 1000.0 / sr;
+                const double now = juce::Time::getMillisecondCounterHiRes();
+                if (now >= due) { runAudio(proc, block / sr, sr, block, rng, phase); ++blocks; }
+                else juce::MessageManager::getInstance()->runDispatchLoopUntil(juce::jmax(1, int(due - now)));
+            }
+        };
+        paced(1.0);
+        const std::clock_t c0 = std::clock(); const double w0 = juce::Time::getMillisecondCounterHiRes();
+        int framesBefore = 0; juce::ignoreUnused(framesBefore);
+        paced(3.0);
+        const double cpu = double(std::clock() - c0) / CLOCKS_PER_SEC, wall = (juce::Time::getMillisecondCounterHiRes() - w0) / 1000.0;
+        std::printf("%-28s %10.2f %8d %9.1f%%\n", c.name, ed->getAnalyzerPaintMs(), ed->getAnalyzerFps(), 100.0 * cpu / wall);
+        ed.reset();
+    }
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String(argv[1]) == "--bench") return runBenchmark(argc > 2 ? juce::String(argv[2]) : juce::String());
     const juce::File outDir(argc > 1 ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[1])
                                      : juce::File::getCurrentWorkingDirectory().getChildFile("snapshots"));
     const float scale = argc > 2 ? (float) std::atof(argv[2]) : 1.0f;
@@ -70,6 +152,9 @@ int main(int argc, char** argv)
         { "wide_1600x800",    0, 0, false, 1600, 800 },
         { "standard_quality", 0, 2, false, 1280, 800, 0 },
         { "scope_split_500ms", 0, 0, true, 1280, 800, 1, { { "sc_view", 3 }, { "sc_time", 500.0 }, { "sc_persist", 0.0 } } },
+        { "large_2560x1600", 1, 2, false, 2560, 1600 },
+        { "small_expanded_scope", 0, 0, true, 960, 600 },
+        { "small_stereo", 2, 1, false, 960, 600 },
         { "stereo_lr_docked", 1, 1, false, 1280, 800, 1, { { "vs_display", 1 } } },
         { "stereo_mono_input", 0, 1, true, 1280, 800, 1, { { "test_signal", 1 } } },
         { "stereo_inverted",   0, 1, true, 1280, 800, 1, { { "test_signal", 2 } } },

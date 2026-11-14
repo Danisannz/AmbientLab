@@ -1,8 +1,10 @@
 // Oscilloscope: trigger-aligned stereo waveform display.
 //
-// Rendering: one min/max envelope span per pixel column (HQ: physical pixels,
-// Standard: logical pixels). When zoomed in so that a column holds fewer than
-// two samples, the samples are joined by a line instead. Audio samples are
+// Rendering: each channel is one filled envelope built from the interpolated
+// min/max of the waveform per pixel column (HQ: physical pixels, Standard:
+// logical pixels). This is exact for dense data and traces the line between
+// samples when zoomed in. Samples are never drawn as individual objects and the
+// cost is bounded by the display width, not the sample count. Audio samples are
 // never drawn as individual graphics objects.
 
 #include "AnalyzerViews.h"
@@ -160,45 +162,35 @@ private:
         auto yOf = [&](float v) { return juce::jlimit(lane.getY(), lane.getBottom(), cy - v * gain * half); };
         const float px = 1.0f / scale; // one physical pixel in logical units
 
-        juce::Path p;
-        if (float(n) / float(cols) >= 2.0f)
+        // One filled envelope per channel: interpolated min/max per pixel column.
+        colMin.resize(size_t(cols)); colMax.resize(size_t(cols));
+        viz::interpolatedMinMax(data, size_t(n), size_t(cols), colMin.data(), colMax.data());
+        const float dx = lane.getWidth() / float(cols);
+        auto envelope = [&](float thickness)
         {
-            // Envelope: max edge left->right, min edge right->left.
-            colMin.resize(size_t(cols)); colMax.resize(size_t(cols));
-            viz::minMaxDecimate(data, size_t(n), size_t(cols), colMin.data(), colMax.data());
-            const float dx = lane.getWidth() / float(cols);
+            juce::Path p;
+            p.preallocateSpace(cols * 6 + 8);
             for (int c = 0; c < cols; ++c)
             {
                 const float x = lane.getX() + (float(c) + 0.5f) * dx;
-                const float yt = juce::jmin(yOf(colMax[size_t(c)]), yOf(colMin[size_t(c)]) - px * 0.75f);
+                const float yt = juce::jmin(yOf(colMax[size_t(c)]), yOf(colMin[size_t(c)]) - thickness);
                 if (c == 0) p.startNewSubPath(x, yt); else p.lineTo(x, yt);
             }
             for (int c = cols - 1; c >= 0; --c)
             {
                 const float x = lane.getX() + (float(c) + 0.5f) * dx;
-                const float yb = juce::jmax(yOf(colMin[size_t(c)]), yOf(colMax[size_t(c)]) + px * 0.75f);
-                p.lineTo(x, yb);
+                p.lineTo(x, juce::jmax(yOf(colMin[size_t(c)]), yOf(colMax[size_t(c)]) + thickness));
             }
             p.closeSubPath();
-            g.setColour(col.withMultipliedAlpha(0.9f));
-            g.fillPath(p);
-        }
-        else
+            return p;
+        };
+        if (hq)
         {
-            for (int i = 0; i < n; ++i)
-            {
-                const float x = lane.getX() + lane.getWidth() * float(i) / float(n - 1);
-                const float y = yOf(data[i]);
-                if (i == 0) p.startNewSubPath(x, y); else p.lineTo(x, y);
-            }
-            if (hq)
-            {
-                g.setColour(col.withMultipliedAlpha(0.18f));
-                g.strokePath(p, juce::PathStrokeType(3.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            }
-            g.setColour(col);
-            g.strokePath(p, juce::PathStrokeType(hq ? 1.4f : 1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setColour(col.withMultipliedAlpha(0.14f)); // soft beam glow
+            g.fillPath(envelope(px * 2.5f));
         }
+        g.setColour(col);
+        g.fillPath(envelope(px * 0.9f));
     }
 
     void drawGrid(juce::Graphics& g)

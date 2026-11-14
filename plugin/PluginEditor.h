@@ -19,6 +19,11 @@ public:
     void resized() override;
 
     static constexpr int kBaseW = 1280, kBaseH = 800;
+
+    /** Benchmark/diagnostic access (snapshot tool). */
+    double getAnalyzerPaintMs() const { return analyzer ? analyzer->getAveragePaintMs() : 0.0; }
+    int getAnalyzerFps() const { return analyzer ? analyzer->getFps() : 0; }
+    void setAnalyzerFrozen(bool f);
     static constexpr int kMinW = 960, kMinH = 600, kMaxW = 2560, kMaxH = 1600;
 
 private:
@@ -42,6 +47,14 @@ private:
 
     AmbientProcessor& proc;
     ambient::ui::UiSettings settings;
+    /** Holds the whole interface. Laid out on a virtual canvas and scaled uniformly
+        (vector rendering stays sharp; image layers render at physical resolution). */
+    struct Content : juce::Component
+    {
+        std::function<void(juce::Graphics&)> painter;
+        void paint(juce::Graphics& g) override { if (painter) painter(g); }
+    } content;
+    float uiScale = 1.0f;
     ambient::ui::AmbientLookAndFeel lnf;
     juce::TooltipWindow tooltips { this, 700 };
     juce::Image logo;

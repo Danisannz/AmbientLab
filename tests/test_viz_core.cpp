@@ -178,3 +178,30 @@ TEST_CASE("Stereo image classification: mono, inverted, wide, uncorrelated, one-
     std::fill(r.begin(), r.end(), 0.0f);
     REQUIRE(classifyStereo(computeStereoStats(l.data(), r.data(), n)) == StereoImage::Silent);
 }
+
+TEST_CASE("Interpolated min/max: matches decimation when dense, traces the line when sparse")
+{
+    // Dense: 1000 samples, 10 columns -> extremes preserved, as plain min/max.
+    std::vector<float> d(1000, 0.0f);
+    d[123] = 0.9f; d[777] = -0.8f;
+    std::vector<float> lo(10), hi(10);
+    interpolatedMinMax(d.data(), d.size(), 10, lo.data(), hi.data());
+    REQUIRE(hi[1] == 0.9f);
+    REQUIRE(lo[7] == -0.8f);
+
+    // Sparse: ramp of 3 samples (0, 1, 0) across 8 columns -> monotonic up then down,
+    // each column spanning the interpolated segment (no gaps between columns).
+    const float ramp[] = { 0.0f, 1.0f, 0.0f };
+    std::vector<float> l2(8), h2(8);
+    interpolatedMinMax(ramp, 3, 8, l2.data(), h2.data());
+    for (int c = 0; c < 8; ++c) REQUIRE(l2[size_t(c)] <= h2[size_t(c)]);
+    for (int c = 1; c < 8; ++c)
+    {
+        REQUIRE(l2[size_t(c)] <= h2[size_t(c - 1)] + 1e-6f); // overlap with previous column
+        REQUIRE(h2[size_t(c)] >= l2[size_t(c - 1)] - 1e-6f);
+    }
+    REQUIRE(h2[3] == Catch::Approx(1.0f));
+    REQUIRE(h2[4] == Catch::Approx(1.0f));
+    REQUIRE(l2[0] == Catch::Approx(0.0f));
+    REQUIRE(h2[0] == Catch::Approx(0.25f));
+}

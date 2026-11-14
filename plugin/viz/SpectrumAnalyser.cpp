@@ -68,6 +68,24 @@ void SpectrumAnalyser::renderLogCurve(int numPoints, float fMin, float fMax, flo
     const int bins = getNumBins();
     const float half = smoothingOct * 0.5f;
 
+    // Prefix sums of linear power: any band average is O(1).
+    // cum[k] = sum of power of bins [0, k). Fractional edge bins are weighted by overlap.
+    if (half > 0.0f)
+    {
+        cumPower.resize(size_t(bins) + 1);
+        cumPower[0] = 0.0;
+        for (int k = 0; k < bins; ++k)
+            cumPower[size_t(k) + 1] = cumPower[size_t(k)] + std::pow(10.0, double(src[size_t(k)]) / 10.0);
+    }
+    // Integral of power over bin coordinate [0, x], bin k covering [k-0.5, k+0.5).
+    auto integral = [&](double x)
+    {
+        x = juce::jlimit(-0.5, double(bins) - 0.5, x);
+        const double u = x + 0.5;               // shift so bin k covers [k, k+1)
+        const int k = juce::jmin(bins - 1, int(u));
+        return cumPower[size_t(k)] + (u - double(k)) * (cumPower[size_t(k) + 1] - cumPower[size_t(k)]);
+    };
+
     for (int i = 0; i < numPoints; ++i)
     {
         const float x = numPoints > 1 ? float(i) / float(numPoints - 1) : 0.0f;
@@ -88,20 +106,9 @@ void SpectrumAnalyser::renderLogCurve(int numPoints, float fMin, float fMax, flo
         }
         else
         {
-            // Average power across the band, weighting each bin by its fractional
-            // overlap with [bLo, bHi] so the curve is continuous (no staircase).
-            const int a = juce::jlimit(0, bins - 1, int(std::floor(bLo + 0.5f)));
-            const int b = juce::jlimit(0, bins - 1, int(std::floor(bHi + 0.5f)));
-            double sum = 0.0, wsum = 0.0;
-            for (int k = a; k <= b; ++k)
-            {
-                const double lo = juce::jmax(double(bLo), k - 0.5), hi = juce::jmin(double(bHi), k + 0.5);
-                const double w = hi - lo;
-                if (w <= 0.0) continue;
-                sum += w * std::pow(10.0, src[size_t(k)] / 10.0);
-                wsum += w;
-            }
-            outDb[i] = wsum > 0.0 && sum > 1.0e-14 ? float(10.0 * std::log10(sum / wsum)) : kFloorDb;
+            const double width = double(bHi - bLo);
+            const double p = (integral(bHi) - integral(bLo)) / width;
+            outDb[i] = p > 1.0e-14 ? float(10.0 * std::log10(p)) : kFloorDb;
         }
     }
 }

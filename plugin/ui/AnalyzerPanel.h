@@ -29,6 +29,8 @@ public:
 
     /** Average time spent painting the panel and its active view (ms). */
     double getAveragePaintMs() const noexcept { return avgPaintMs; }
+    /** Analyzer repaints during the last full second. */
+    int getFps() const noexcept { return fps; }
 
 private:
     void setMode(int m);

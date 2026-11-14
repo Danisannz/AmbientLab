@@ -53,6 +53,7 @@ private:
     std::unique_ptr<juce::dsp::FFT> fft;
     std::vector<float> window, work, avgPower, avgDb, peakDb;
     float windowGain = 1.0f;
+    mutable std::vector<double> cumPower; // scratch for renderLogCurve (UI thread)
     bool hasData = false;
 };
 } // namespace ambient::viz

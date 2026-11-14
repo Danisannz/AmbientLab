@@ -128,6 +128,37 @@ inline void minMaxDecimate(const float* data, std::size_t n, std::size_t columns
     }
 }
 
+/** Min/max of the *linearly interpolated* waveform over each of `columns` equal
+    spans of [0, n-1]. Works at any zoom: with many samples per column it equals
+    plain min/max decimation (plus the span endpoints, so adjacent columns join
+    without gaps); with fewer samples than columns it traces the line between
+    samples. Cost is O(n + columns). */
+inline void interpolatedMinMax(const float* data, std::size_t n, std::size_t columns,
+                               float* outMin, float* outMax) noexcept
+{
+    if (columns == 0 || n == 0) return;
+    if (n == 1) { for (std::size_t c = 0; c < columns; ++c) outMin[c] = outMax[c] = data[0]; return; }
+    const double last = double(n - 1);
+    auto at = [&](double t)
+    {
+        const std::size_t i = std::min(std::size_t(t), n - 2);
+        const float f = float(t - double(i));
+        return data[i] + f * (data[i + 1] - data[i]);
+    };
+    for (std::size_t c = 0; c < columns; ++c)
+    {
+        const double t0 = last * double(c) / double(columns);
+        const double t1 = last * double(c + 1) / double(columns);
+        float lo = std::min(at(t0), at(t1)), hi = std::max(at(t0), at(t1));
+        for (std::size_t i = std::size_t(std::ceil(t0)); double(i) <= t1 && i < n; ++i)
+        {
+            lo = std::min(lo, data[i]);
+            hi = std::max(hi, data[i]);
+        }
+        outMin[c] = lo; outMax[c] = hi;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Frequency mapping
 // ---------------------------------------------------------------------------

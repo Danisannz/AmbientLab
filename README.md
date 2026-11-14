@@ -15,6 +15,15 @@ Two plugins share one DSP core:
 versioned state with migration, parameter smoothing, denormal/NaN protection, zero-latency output
 safety (DC blocker + soft clip), 8 macros, 8-voice test tone synth (temporary), minimal test UI, unit tests, CI.
 
+## Interface
+
+Cyberpunk-psychedelic identity (Space Grotesk + IBM Plex Sans, ultraviolet /
+lime / magenta on graphite), four tabs (Sound, Process, Modulation, Sequencer),
+always-visible macros, and a docked analyzer (oscilloscope, stereo vectorscope,
+spectrum) that can expand over the work area. Engines that are not built yet
+appear as labelled placeholders with their stage number - never as fake controls.
+Settings > Graphics quality switches Standard / High quality (see docs/ANALYZER.md).
+
 ## Getting the plugin
 
 Every push builds on GitHub Actions. Open the **Actions** tab → latest run → download
@@ -34,6 +43,8 @@ ctest --test-dir build -C Release
 core/     DSP library, no JUCE dependency (unit-tested headless)
 plugin/   JUCE processor, parameters, state migration, editor
 tests/    Catch2 unit tests
+tools/    snapshot: headless editor renderer + rendering benchmark (optional)
+docs/     ROADMAP.md, ANALYZER.md (architecture, level conventions, benchmark)
 ```
 
 ## Design rules
