@@ -1,0 +1,58 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache FetchContent deps
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Unit tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Download pluginval
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip -OutFile pluginval.zip
+          Expand-Archive pluginval.zip -DestinationPath pluginval
+
+      - name: Validate plugins (pluginval, strictness 10)
+        shell: pwsh
+        run: |
+          $plugins = Get-ChildItem -Path build -Recurse -Directory -Filter *.vst3 | Where-Object { $_.FullName -match 'Release' }
+          foreach ($p in $plugins) {
+            Write-Host "Validating $($p.FullName)"
+            ./pluginval/pluginval.exe --strictness-level 10 --validate-in-process --output-dir pluginval-logs --validate "$($p.FullName)"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+
+      - name: Upload VST3 plugins
+        uses: actions/upload-artifact@v4
+        with:
+          name: AmbientLab-VST3-Windows
+          path: |
+            build/plugin/AmbientLabInstrument_artefacts/Release/VST3/
+            build/plugin/AmbientLabFX_artefacts/Release/VST3/
+
+      - name: Upload pluginval logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginval-logs
+          path: pluginval-logs
