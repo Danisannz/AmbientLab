@@ -3,6 +3,7 @@
 #include <ambient/Safety.h>
 #include <ambient/Smoother.h>
 #include <ambient/TestToneSynth.h>
+#include <ambient/StereoCaptureRing.h>
 #include <array>
 
 class AmbientProcessor : public juce::AudioProcessor
@@ -37,8 +38,18 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
-    // UI-readable output peak (written by audio thread, read by UI timer).
-    std::atomic<float> outputPeak { 0.0f };
+    // ---- Audio -> UI telemetry (lock-free; written by the audio thread) ----
+    std::atomic<float> outputPeak { 0.0f };          // max(L,R), decaying
+    std::atomic<float> peakL { 0.0f }, peakR { 0.0f }; // per-block peaks
+    std::atomic<uint32_t> midiEventCount { 0 };       // increments per MIDI event
+    std::atomic<float> inputPeak { 0.0f };            // external input level (pre-gain)
+    std::atomic<double> currentSampleRate { 48000.0 };
+
+    /** Set by the editor; the audio thread only feeds the capture ring while true. */
+    std::atomic<bool> editorOpen { false };
+    ambient::StereoCaptureRing captureRing { 1 << 16 };
+
+    double getCpuLoad() const noexcept { return loadMeasurer.getLoadAsProportion(); }
 
 private:
     static BusesProperties makeBuses();
@@ -53,6 +64,7 @@ private:
     std::array<ambient::DcBlocker, 2> dc;
     ambient::TestToneSynth synth;
     juce::AudioBuffer<float> synthBuffer; // preallocated in prepareToPlay
+    juce::AudioProcessLoadMeasurer loadMeasurer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AmbientProcessor)
 };

@@ -1,29 +1,62 @@
 #pragma once
 #include "PluginProcessor.h"
+#include "ui/AnalyzerPanel.h"
+#include "ui/HeaderBar.h"
+#include "viz/VisualizerHub.h"
 
-/** Stage 1 test UI: header with branding slot, global controls and 8 macros.
-    Replaced by the full interface in Stage 9. */
+/** AMBIENTLAB editor.
+    Layout:  header | tab bar | [ active page | docked analyzer ] | macros footer
+    The analyzer can expand over the page area. */
 class AmbientEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
     explicit AmbientEditor(AmbientProcessor&);
+    ~AmbientEditor() override;
+
     void paint(juce::Graphics&) override;
     void resized() override;
 
-private:
-    void timerCallback() override;
+    static constexpr int kBaseW = 1280, kBaseH = 800;
 
-    struct Knob
+private:
+    /** A tab page: a grid of module cards. */
+    struct Page : juce::Component
     {
-        juce::Slider slider { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
-        juce::Label label;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> att;
+        struct Slot { std::unique_ptr<ambient::ui::ModuleCard> card; int col, row, colSpan, rowSpan; };
+        int cols = 1, rows = 1;
+        std::vector<Slot> slots;
+        std::function<void()> layoutContents; // positions real controls inside cards
+        ambient::ui::ModuleCard& add(const juce::String& title, int c, int r, int cs = 1, int rs = 1);
+        void resized() override;
+        float scale = 1.0f;
     };
 
+    void timerCallback() override;
+    void buildPages();
+    void setScale(float s);
+    void showPage(int index);
+
     AmbientProcessor& proc;
-    std::vector<std::unique_ptr<Knob>> globals, macros;
-    juce::ToggleButton bypassSynth { "Bypass Synth" };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
-    float meter = 0.0f;
+    ambient::ui::AmbientLookAndFeel lnf;
+    juce::TooltipWindow tooltips { this, 600 };
     juce::Image logo;
+
+    ambient::viz::VisualizerHub hub;
+    std::unique_ptr<ambient::ui::HeaderBar> header;
+    ambient::ui::TabBar tabs { { "SOUND", "PROCESS", "MODULATION", "SEQUENCER" } };
+    std::array<Page, 4> pages;
+    std::unique_ptr<ambient::ui::AnalyzerPanel> analyzer;
+
+    // Real controls (only parameters that exist)
+    std::unique_ptr<ambient::ui::RotaryKnob> inputKnob, mixKnob;
+    juce::ToggleButton bypassSynth { "Bypass synth" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
+
+    ambient::ui::ModuleCard macroCard { "Macros" };
+    std::vector<std::unique_ptr<ambient::ui::RotaryKnob>> macros;
+
+    double lastTick = 0.0;
+    bool analyzerExpanded = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AmbientEditor)
 };

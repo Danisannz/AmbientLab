@@ -40,6 +40,8 @@ bool AmbientProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 void AmbientProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     synthBuffer.setSize(1, samplesPerBlock, false, true, false);
+    loadMeasurer.reset(sampleRate, samplesPerBlock);
+    currentSampleRate.store(sampleRate);
     synth.prepare(sampleRate);
     for (auto* s : { &masterGain, &inputGain, &sourceMix }) s->prepare(sampleRate, 20.0f);
     masterGain.reset(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));
@@ -58,6 +60,7 @@ void AmbientProcessor::handleMidi(const juce::MidiMessage& m)
 void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     ScopedNoDenormals noDenormals;
+    juce::AudioProcessLoadMeasurer::ScopedTimer loadTimer(loadMeasurer, buffer.getNumSamples());
 
     const int n = buffer.getNumSamples();
     if (n > synthBuffer.getNumSamples()) // host exceeded announced block size: refuse to allocate
@@ -79,6 +82,8 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     float* s = synthBuffer.getWritePointer(0);
     juce::FloatVectorOperations::clear(s, n);
     int pos = 0;
+    if (const int nm = midi.getNumEvents(); nm > 0)
+        midiEventCount.fetch_add(uint32_t(nm), std::memory_order_relaxed);
     for (const auto meta : midi)
     {
         const int at = juce::jlimit(0, n, meta.samplePosition);
@@ -94,7 +99,7 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     inputGain.setTarget (juce::Decibels::decibelsToGain(pInputGain->load(),  -60.0f));
     sourceMix.setTarget (pSourceMix->load());
 
-    float peak = 0.0f;
+    float peak = 0.0f, pkL = 0.0f, pkR = 0.0f, pkIn = 0.0f;
     for (int i = 0; i < n; ++i)
     {
         const float g = inputGain.next(), mix = sourceMix.next(), mg = masterGain.next();
@@ -109,11 +114,19 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         l = softClip(dc[0].process(l));
         r = softClip(dc[1].process(r));
         L[i] = l; R[i] = r;
-        peak = std::max(peak, std::max(std::abs(l), std::abs(r)));
+        pkL = std::max(pkL, std::abs(l));
+        pkR = std::max(pkR, std::abs(r));
+        if (inL) pkIn = std::max(pkIn, std::max(std::abs(inL[i]), std::abs(inR[i])));
     }
+    peak = std::max(pkL, pkR);
 
     for (int ch = 2; ch < buffer.getNumChannels(); ++ch) buffer.clear(ch, 0, n);
     if (sanitize(L, size_t(n)) | sanitize(R, size_t(n))) for (auto& d : dc) d = {};
+    peakL.store(pkL, std::memory_order_relaxed);
+    peakR.store(pkR, std::memory_order_relaxed);
+    inputPeak.store(pkIn, std::memory_order_relaxed);
+    if (editorOpen.load(std::memory_order_relaxed) && n <= captureRing.getCapacity() / 4)
+        captureRing.write(L, R, n); // memcpy-like, no allocation
     outputPeak.store(std::max(peak, outputPeak.load(std::memory_order_relaxed) * 0.9f),
                      std::memory_order_relaxed);
 }

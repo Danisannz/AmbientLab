@@ -4,6 +4,12 @@ set(AMBIENT_PLUGIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/PluginEditor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Parameters.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/StateMigration.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/AmbientLookAndFeel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/Components.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/HeaderBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/AnalyzerPanel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/viz/SpectrumAnalyser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/viz/VisualizerHub.cpp
 )
 
 juce_add_binary_data(AmbientLabAssets SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/assets/logo.png)
