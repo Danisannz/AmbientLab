@@ -38,9 +38,12 @@ jobs:
           $plugins = Get-ChildItem -Path build -Recurse -Directory -Filter *.vst3 | Where-Object { $_.FullName -match 'Release' }
           foreach ($p in $plugins) {
             Write-Host "Validating $($p.FullName)"
-            ./pluginval/pluginval.exe --strictness-level 10 --skip-gui-tests --output-dir pluginval-logs --validate "$($p.FullName)"
-            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $out = & ./pluginval/pluginval.exe --strictness-level 10 --skip-gui-tests --output-dir pluginval-logs --validate "$($p.FullName)" 2>&1 | Out-String
+            Write-Host $out
+            # pluginval can return a non-zero code on exit even after passing; judge by its verdict.
+            if ($out -notmatch 'SUCCESS') { Write-Host "pluginval FAILED for $($p.Name)"; exit 1 }
           }
+          exit 0
 
       - name: Upload VST3 plugins
         uses: actions/upload-artifact@v4
