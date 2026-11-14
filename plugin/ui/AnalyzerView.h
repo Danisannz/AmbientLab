@@ -139,9 +139,9 @@ private:
 };
 
 /** Number of rows of `rowHeight` needed to lay `chips` out in `width`. */
-int chipRowsNeeded(int width, const std::vector<juce::Component*>& chips, int gap = 6);
+int chipRowsNeeded(int width, const std::vector<juce::Component*>& chips, int spacing = 6);
 
 /** Lays chips out left-to-right, wrapping into further rows of `rowHeight`.
     Never overlaps: chips that do not fit in `area` are hidden. */
-void layoutChips(juce::Rectangle<int> area, const std::vector<juce::Component*>& chips, int rowHeight, int gap = 6);
+void layoutChips(juce::Rectangle<int> area, const std::vector<juce::Component*>& chips, int rowHeight, int spacing = 6);
 } // namespace ambient::ui

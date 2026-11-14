@@ -150,29 +150,29 @@ static int chipWidth(juce::Component* c)
     return c->getWidth() > 0 ? c->getWidth() : 80;
 }
 
-int chipRowsNeeded(int width, const std::vector<juce::Component*>& chips, int gap)
+int chipRowsNeeded(int width, const std::vector<juce::Component*>& chips, int spacing)
 {
     int rows = 1, x = 0;
     for (auto* c : chips)
     {
         const int w = chipWidth(c);
         if (x > 0 && x + w > width) { ++rows; x = 0; }
-        x += w + gap;
+        x += w + spacing;
     }
     return rows;
 }
 
-void layoutChips(juce::Rectangle<int> area, const std::vector<juce::Component*>& chips, int rowHeight, int gap)
+void layoutChips(juce::Rectangle<int> area, const std::vector<juce::Component*>& chips, int rowHeight, int spacing)
 {
     int x = area.getX(), y = area.getY();
     for (auto* c : chips)
     {
         const int w = juce::jmin(chipWidth(c), area.getWidth());
-        if (x > area.getX() && x + w > area.getRight()) { x = area.getX(); y += rowHeight + gap / 2; }
+        if (x > area.getX() && x + w > area.getRight()) { x = area.getX(); y += rowHeight + spacing / 2; }
         const bool fits = y + rowHeight <= area.getBottom();
         c->setVisible(fits);
         if (fits) c->setBounds(x, y, w, rowHeight);
-        x += w + gap;
+        x += w + spacing;
     }
 }
 } // namespace ambient::ui
