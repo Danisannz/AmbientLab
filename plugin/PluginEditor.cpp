@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #include "Parameters.h"
 #include <ambient/ParamIDs.h>
+#include <BinaryData.h>
 
 using namespace ambient;
 
@@ -41,6 +42,8 @@ AmbientEditor::AmbientEditor(AmbientProcessor& p) : AudioProcessorEditor(p), pro
     bypassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(proc.apvts, id(ids::bypassSynth), bypassSynth);
 #endif
 
+    logo = juce::ImageCache::getFromMemory(BinaryData::logo_png, BinaryData::logo_pngSize);
+
     setResizable(true, true);
     setResizeLimits(720, 420, 1800, 1050);
     getConstrainer()->setFixedAspectRatio(720.0 / 420.0);
@@ -58,23 +61,25 @@ void AmbientEditor::paint(juce::Graphics& g)
 {
     g.fillAll(kBg);
     auto r = getLocalBounds();
-    auto header = r.removeFromTop(56);
+    auto header = r.removeFromTop(66);
     g.setColour(kPanel);
     g.fillRect(header);
 
-    // Branding slot (user logo goes here later)
-    auto logo = header.reduced(10).removeFromLeft(180);
-    g.setColour(kAccent.withAlpha(0.35f));
-    g.drawRoundedRectangle(logo.toFloat(), 4.0f, 1.0f);
+    // Branding: Danisan logo + product name
+    auto brand = header.reduced(6);
+    auto logoArea = brand.removeFromLeft(brand.getHeight());
+    if (logo.isValid())
+        g.drawImageWithin(logo, logoArea.getX(), logoArea.getY(), logoArea.getWidth(), logoArea.getHeight(),
+                          juce::RectanglePlacement::centred);
     g.setColour(kText);
-    g.setFont(juce::FontOptions(18.0f, juce::Font::bold));
-    g.drawText("AMBIENTLAB", logo, juce::Justification::centred);
+    g.setFont(juce::FontOptions(20.0f, juce::Font::bold));
+    g.drawText("AMBIENTLAB", brand.removeFromLeft(180).withTrimmedLeft(10), juce::Justification::centredLeft);
     g.setFont(juce::FontOptions(12.0f));
     g.drawText(juce::String("Stage 1 build  |  ") + (AMBIENT_IS_INSTRUMENT ? "Instrument" : "FX"),
                header.reduced(12), juce::Justification::centredRight);
 
     // Output meter
-    auto m = getLocalBounds().removeFromRight(30).withTrimmedTop(66).reduced(8, 10);
+    auto m = getLocalBounds().removeFromRight(30).withTrimmedTop(76).reduced(8, 10);
     g.setColour(kPanel); g.fillRect(m);
     const float db = juce::Decibels::gainToDecibels(meter, -60.0f);
     const int h = int(m.getHeight() * juce::jmap(db, -60.0f, 0.0f, 0.0f, 1.0f));
@@ -84,7 +89,7 @@ void AmbientEditor::paint(juce::Graphics& g)
 
 void AmbientEditor::resized()
 {
-    auto r = getLocalBounds().withTrimmedTop(66).withTrimmedRight(34).reduced(12);
+    auto r = getLocalBounds().withTrimmedTop(76).withTrimmedRight(34).reduced(12);
     auto top = r.removeFromTop(r.getHeight() / 2);
     auto layoutRow = [](juce::Rectangle<int> row, std::vector<std::unique_ptr<Knob>>& ks, int slots)
     {

@@ -6,6 +6,9 @@ set(AMBIENT_PLUGIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/StateMigration.cpp
 )
 
+juce_add_binary_data(AmbientLabAssets SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/assets/logo.png)
+set_target_properties(AmbientLabAssets PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 function(ambient_add_plugin TARGET PRODUCT CODE IS_SYNTH)
     juce_add_plugin(${TARGET}
         COMPANY_NAME            "AmbientLab"
@@ -31,6 +34,7 @@ function(ambient_add_plugin TARGET PRODUCT CODE IS_SYNTH)
         JUCE_DISPLAY_SPLASH_SCREEN=0)
     target_link_libraries(${TARGET}
         PRIVATE ambient_core
+                AmbientLabAssets
                 juce::juce_audio_utils
                 juce::juce_dsp
         PUBLIC  juce::juce_recommended_config_flags

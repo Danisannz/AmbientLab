@@ -25,4 +25,5 @@ private:
     juce::ToggleButton bypassSynth { "Bypass Synth" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
     float meter = 0.0f;
+    juce::Image logo;
 };
