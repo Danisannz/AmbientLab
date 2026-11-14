@@ -88,12 +88,20 @@ void SpectrumAnalyser::renderLogCurve(int numPoints, float fMin, float fMax, flo
         }
         else
         {
-            // Average power across the band.
-            const int a = juce::jlimit(0, bins - 1, int(std::ceil(bLo)));
-            const int b = juce::jlimit(0, bins - 1, int(std::floor(bHi)));
-            double sum = 0.0; int count = 0;
-            for (int k = a; k <= b; ++k) { sum += std::pow(10.0, src[size_t(k)] / 10.0); ++count; }
-            outDb[i] = count > 0 && sum > 1.0e-14 ? float(10.0 * std::log10(sum / count)) : kFloorDb;
+            // Average power across the band, weighting each bin by its fractional
+            // overlap with [bLo, bHi] so the curve is continuous (no staircase).
+            const int a = juce::jlimit(0, bins - 1, int(std::floor(bLo + 0.5f)));
+            const int b = juce::jlimit(0, bins - 1, int(std::floor(bHi + 0.5f)));
+            double sum = 0.0, wsum = 0.0;
+            for (int k = a; k <= b; ++k)
+            {
+                const double lo = juce::jmax(double(bLo), k - 0.5), hi = juce::jmin(double(bHi), k + 0.5);
+                const double w = hi - lo;
+                if (w <= 0.0) continue;
+                sum += w * std::pow(10.0, src[size_t(k)] / 10.0);
+                wsum += w;
+            }
+            outDb[i] = wsum > 0.0 && sum > 1.0e-14 ? float(10.0 * std::log10(sum / wsum)) : kFloorDb;
         }
     }
 }

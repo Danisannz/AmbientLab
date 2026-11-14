@@ -12,6 +12,16 @@ namespace ambient::viz
 enum class AnalyzerMode { Scope = 0, Stereo, Spectrum };
 enum class ScopeChannels { Left = 0, Right, Overlay, Mono };
 
+/** Spectrum signal selection. Level convention (all modes): dBFS of the analysed
+    signal, calibrated so a full-scale sine reads 0 dB.
+      Left / Right : that channel alone.
+      Stereo       : L and R analysed separately (two calibrated curves) - a signal
+                     present in only one channel is NOT reduced.
+      Mid          : (L + R) / 2  - identical L/R at full scale reads 0 dB;
+                     a signal only in one channel reads -6 dB by definition.
+      Side         : (L - R) / 2  - polarity-inverted L/R at full scale reads 0 dB. */
+enum class SpectrumChannel { Left = 0, Right, Stereo, Mid, Side };
+
 class VisualizerHub
 {
 public:
@@ -37,7 +47,16 @@ public:
     /** Number of most-recent stereo frames shown by the vectorscope. */
     void setVectorscopeFrames(int n) noexcept { vectorFrames = juce::jlimit(256, 8192, n); }
 
-    SpectrumAnalyser& spectrum() noexcept { return spec; }
+    SpectrumAnalyser& spectrum() noexcept { return spec; }          // primary (L in Stereo mode)
+    SpectrumAnalyser& spectrumRight() noexcept { return specR; }    // R curve (Stereo mode only)
+
+    void setSpectrumChannel(SpectrumChannel c) noexcept { if (c != specChannel) { specChannel = c; specR.resetPeaks(); spec.resetPeaks(); } }
+    SpectrumChannel getSpectrumChannel() const noexcept { return specChannel; }
+    // Settings applied to both analysers (UI thread; setFftOrder allocates).
+    void setFftOrder(int order) { spec.setOrder(order); specR.setOrder(order); }
+    void setAveraging(float a) noexcept { spec.setAveraging(a); specR.setAveraging(a); }
+    void setPeakDecay(float dbPerSec) noexcept { spec.setPeakDecay(dbPerSec); specR.setPeakDecay(dbPerSec); }
+    void resetPeaks() noexcept { spec.resetPeaks(); specR.resetPeaks(); }
 
     // ---- per-frame update (UI timer) ------------------------------------
     /** Returns true if new data was analysed. */
@@ -72,7 +91,8 @@ private:
     TriggerSource triggerSource = TriggerSource::Mono;
     int vectorFrames = 8192;
 
-    SpectrumAnalyser spec;
+    SpectrumAnalyser spec, specR;
+    SpectrumChannel specChannel = SpectrumChannel::Mid;
     StereoStats stats;
 
     std::vector<float> capL, capR, mono, scopeL, scopeR;

@@ -12,6 +12,7 @@ void VisualizerHub::setSampleRate(double sr)
 {
     sampleRate = sr > 0.0 ? sr : 48000.0;
     spec.setSampleRate(sampleRate);
+    specR.setSampleRate(sampleRate);
 }
 
 void VisualizerHub::ensureCapacity(int frames)
@@ -74,8 +75,23 @@ bool VisualizerHub::update(float dtSeconds)
         const int n = spec.getSize();
         const float* srcL = capL.data() + (need - n);
         const float* srcR = capR.data() + (need - n);
-        for (int i = 0; i < n; ++i) mono[size_t(i)] = 0.5f * (srcL[i] + srcR[i]);
-        spec.process(mono.data(), dtSeconds);
+        switch (specChannel)
+        {
+            case SpectrumChannel::Left:  spec.process(srcL, dtSeconds); break;
+            case SpectrumChannel::Right: spec.process(srcR, dtSeconds); break;
+            case SpectrumChannel::Stereo:
+                spec.process(srcL, dtSeconds);
+                specR.process(srcR, dtSeconds);
+                break;
+            case SpectrumChannel::Mid:
+                for (int i = 0; i < n; ++i) mono[size_t(i)] = 0.5f * (srcL[i] + srcR[i]);
+                spec.process(mono.data(), dtSeconds);
+                break;
+            case SpectrumChannel::Side:
+                for (int i = 0; i < n; ++i) mono[size_t(i)] = 0.5f * (srcL[i] - srcR[i]);
+                spec.process(mono.data(), dtSeconds);
+                break;
+        }
     }
     return true;
 }

@@ -163,3 +163,41 @@ TEST_CASE("Hub: scope trigger source follows the displayed channel")
     REQUIRE(std::abs(hub.getScopeRight()[0]) < 0.07f);
     REQUIRE(hub.getScopeRight()[3] > hub.getScopeRight()[0]); // rising on R
 }
+
+TEST_CASE("Hub: spectrum channel selection keeps calibration (no silent level loss)")
+{
+    const double sr = 48000.0;
+    StereoCaptureRing ring(1 << 16);
+    VisualizerHub hub(ring);
+    hub.setSampleRate(sr);
+    hub.setMode(AnalyzerMode::Spectrum);
+    hub.setFftOrder(12);
+    hub.setAveraging(0.0f);
+    const int n = hub.spectrum().getSize();
+    const double binHz = sr / n;
+    const int bin = 100;
+    auto tone = sine(binHz * bin, sr, 8192);
+    std::vector<float> zero(tone.size(), 0.0f), inv(tone.size());
+    for (size_t i = 0; i < tone.size(); ++i) inv[i] = -tone[i];
+
+    auto levelAt = [&](SpectrumAnalyser& a) { return a.getAverageDb()[size_t(bin)]; };
+    auto run = [&](const std::vector<float>& l, const std::vector<float>& r, SpectrumChannel ch)
+    {
+        hub.setSpectrumChannel(ch);
+        ring.write(l.data(), r.data(), int(l.size()));
+        REQUIRE(hub.update(0.016f));
+    };
+
+    // Full-scale tone in LEFT only
+    run(tone, zero, SpectrumChannel::Left);   REQUIRE(levelAt(hub.spectrum()) == Catch::Approx(0.0f).margin(0.2f));
+    run(tone, zero, SpectrumChannel::Right);  REQUIRE(levelAt(hub.spectrum()) < -100.0f);
+    run(tone, zero, SpectrumChannel::Stereo); REQUIRE(levelAt(hub.spectrum()) == Catch::Approx(0.0f).margin(0.2f));
+                                              REQUIRE(levelAt(hub.spectrumRight()) < -100.0f);
+    run(tone, zero, SpectrumChannel::Mid);    REQUIRE(levelAt(hub.spectrum()) == Catch::Approx(-6.02f).margin(0.2f)); // by definition
+
+    // Identical L/R (mono) and polarity-inverted
+    run(tone, tone, SpectrumChannel::Mid);    REQUIRE(levelAt(hub.spectrum()) == Catch::Approx(0.0f).margin(0.2f));
+    run(tone, tone, SpectrumChannel::Side);   REQUIRE(levelAt(hub.spectrum()) < -100.0f);
+    run(tone, inv,  SpectrumChannel::Side);   REQUIRE(levelAt(hub.spectrum()) == Catch::Approx(0.0f).margin(0.2f));
+    run(tone, inv,  SpectrumChannel::Mid);    REQUIRE(levelAt(hub.spectrum()) < -100.0f);
+}

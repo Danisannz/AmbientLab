@@ -24,5 +24,4 @@ struct PendingView : AnalyzerView
 };
 } // namespace
 
-std::unique_ptr<AnalyzerView> createSpectrumView(viz::VisualizerHub& h, UiSettings& s) { return std::make_unique<PendingView>(h, s, "Spectrum analyzer"); }
 } // namespace ambient::ui
