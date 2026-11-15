@@ -2,6 +2,7 @@ add_library(ambient_core STATIC
     src/TestToneSynth.cpp
     src/dsp/Fft.cpp
     src/dsp/SpectralDucker.cpp
+    src/dsp/SynthEngine.cpp
 )
 target_include_directories(ambient_core PUBLIC include)
 target_compile_features(ambient_core PUBLIC cxx_std_20)
