@@ -346,6 +346,37 @@ static int runSelfTest()
             }
     }
 
+   #if AMBIENT_IS_INSTRUMENT
+    // CPU: worst-case synth load - 8 voices, Osc A + B at 7-voice unison, FM, sub, noise, saturation.
+    {
+        std::printf("       synth cost (8 voices, A+B unison 7, FM, sub, noise, drive):\n");
+        for (double rate : { 48000.0, 96000.0, 192000.0 })
+        {
+            AmbientProcessor p;
+            p.setBusesLayout(makeLayout(juce::AudioChannelSet::disabled(), juce::AudioChannelSet::disabled()));
+            p.setRateAndBufferSizeDetails(rate, 512);
+            p.prepareToPlay(rate, 512);
+            setParam(p, "osc.a.unison", 7.0f); setParam(p, "osc.b.unison", 7.0f); setParam(p, "osc.b.on", 1.0f);
+            setParam(p, "osc.fm", 0.4f); setParam(p, "osc.noise.on", 1.0f); setParam(p, "osc.sat.drive", 12.0f);
+            juce::AudioBuffer<float> buf(juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels(), 2), 512);
+            juce::MidiBuffer notes;
+            for (int nn : { 36, 43, 48, 55, 60, 64, 67, 72 }) notes.addEvent(juce::MidiMessage::noteOn(1, nn, 0.8f), 0);
+            juce::MidiBuffer none;
+            const int blocks = int(rate * 2.0 / 512);
+            double t0 = 0.0;
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+                if (b == blocks / 4) t0 = juce::Time::getMillisecondCounterHiRes();
+                p.processBlock(buf, b == 0 ? notes : none);
+            }
+            const double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+            const double audioMs = (blocks - blocks / 4) * 512 * 1000.0 / rate;
+            std::printf("         %6.1f kHz: %5.1f %% of real time (one core)\n", rate / 1000.0, 100.0 * ms / audioMs);
+        }
+    }
+   #endif
+
     // State: v1 session (no sc.* params) loads, migrates to v2, keeps known values.
     {
         AmbientProcessor p;

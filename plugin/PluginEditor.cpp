@@ -135,57 +135,56 @@ void AmbientEditor::showPage(int index)
 
 void AmbientEditor::buildPages()
 {
-    // ---- SOUND -------------------------------------------------------------
-    // Row 0: sound-source modules (placeholders until Stage 2). Row 1: Frequency Sidechain.
+    // ---- SOUND: sound generation -------------------------------------------
     auto& sound = pages[0];
-    sound.cols = 3; sound.rows = 2;
-    sound.rowWeights = { 1.0f, 2.6f };
+    sound.cols = 2; sound.rows = 2;
+    sound.rowWeights = { 2.4f, 1.0f };
 #if AMBIENT_IS_INSTRUMENT
-    auto& osc = sound.add("Oscillators", Glyph::Oscillator, 0, 0);
-    osc.setPlaceholder("Analog-modelled oscillators, sub and noise", 2);
-    sound.add("Filter", Glyph::Filter, 1, 0).setPlaceholder("Multimode filter", 2);
-    sound.add("Envelopes", Glyph::Envelope, 2, 0).setPlaceholder("Amp and mod envelopes", 2);
-    // Synth bypass (existing parameter) lives on the Oscillators card header.
-    osc.addAndMakeVisible(bypassSynth);
+    auto& osc = sound.add("Oscillators", Glyph::Oscillator, 0, 0, 2);
+    oscillators = std::make_unique<OscillatorPanel>(proc.apvts);
+    osc.addAndMakeVisible(*oscillators);
+    osc.addAndMakeVisible(bypassSynth); // synth bypass (existing parameter) on the card header
     osc.setHeaderLedVisible(false);
     bypassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(proc.apvts, id(ids::bypassSynth), bypassSynth);
+    sound.add("Filter", Glyph::Filter, 0, 1).setPlaceholder("Multimode filter with drive and modulation", 3);
+    sound.add("Envelopes", Glyph::Envelope, 1, 1).setPlaceholder("ADSR amplitude and modulation envelopes", 3);
+    sound.layoutContents = [this, &osc]
+    {
+        oscillators->setBounds(osc.getContentBounds().withTrimmedTop(2));
+        bypassSynth.setBounds(osc.getHeaderControlBounds());
+    };
 #else
-    sound.add("Synthesis", Glyph::Synth, 0, 0, 2).setPlaceholder("Oscillators live in the AmbientLab instrument", 0);
-    auto& track = sound.add("Track input", Glyph::Input, 2, 0);
+    sound.add("Synthesis", Glyph::Synth, 0, 0, 1).setPlaceholder("Oscillators live in the AmbientLab instrument", 0);
+    auto& track = sound.add("Track input", Glyph::Input, 1, 0);
     inputKnob = std::make_unique<RotaryKnob>(proc.apvts, id(ids::inputGain), "Input");
     inputKnob->setCompact(true);
     track.addAndMakeVisible(*inputKnob);
+    sound.rowWeights = { 1.0f, 1.0f };
+    sound.layoutContents = [this, &track]
+    {
+        auto c = track.getContentBounds();
+        inputKnob->setBounds(c.withSizeKeepingCentre(juce::jmin(90, c.getWidth()), juce::jmin(RotaryKnob::heightFor(40, true), c.getHeight())));
+    };
 #endif
-    auto& sc = sound.add("Frequency sidechain", Glyph::Filter, 0, 1, 3);
+
+    // ---- PROCESS: Frequency Sidechain + upcoming processors -------------------
+    auto& process = pages[1];
+    process.cols = 4; process.rows = 2;
+    process.rowWeights = { 2.6f, 1.0f };
+    auto& sc = process.add("Frequency sidechain", Glyph::Filter, 0, 0, 4);
     sidechain = std::make_unique<SidechainPanel>(proc, settings);
     sc.addAndMakeVisible(*sidechain);
     sc.addAndMakeVisible(sidechain->getEnableButton());
     sc.setHeaderLedVisible(false);
-
-    sound.layoutContents = [this, &sc]
+    process.add("Granular", Glyph::Grains, 0, 1).setPlaceholder("Real-time granular engine", 4);
+    process.add("Reverb", Glyph::Reverb, 1, 1).setPlaceholder("Seven reverb algorithms", 5);
+    process.add("Delay", Glyph::Delay, 2, 1).setPlaceholder("Eight delay models", 6);
+    process.add("Routing", Glyph::Stereo, 3, 1).setPlaceholder("Serial / parallel / flexible routing", 9);
+    process.layoutContents = [this, &sc]
     {
         sidechain->setBounds(sc.getContentBounds().withTrimmedTop(4));
         sidechain->getEnableButton().setBounds(sc.getHeaderControlBounds());
-       #if AMBIENT_IS_INSTRUMENT
-        if (auto* p = bypassSynth.getParentComponent())
-            if (auto* card = dynamic_cast<ModuleCard*>(p)) bypassSynth.setBounds(card->getHeaderControlBounds());
-       #else
-        if (auto* p = inputKnob->getParentComponent())
-            if (auto* card = dynamic_cast<ModuleCard*>(p))
-            {
-                auto c = card->getContentBounds();
-                inputKnob->setBounds(c.withSizeKeepingCentre(juce::jmin(90, c.getWidth()), juce::jmin(RotaryKnob::heightFor(40, true), c.getHeight())));
-            }
-       #endif
     };
-
-    // ---- PROCESS -------------------------------------------------------------
-    auto& process = pages[1];
-    process.cols = 2; process.rows = 2;
-    process.add("Granular", Glyph::Grains, 0, 0).setPlaceholder("Real-time granular engine with freeze and grain feedback", 3);
-    process.add("Reverb", Glyph::Reverb, 1, 0).setPlaceholder("Shimmer, hall, plate, spring, room, cathedral and infinite reverbs", 4);
-    process.add("Delay", Glyph::Delay, 0, 1).setPlaceholder("BBD, tape, digital, ping-pong, multi-tap and granular delays", 5);
-    process.add("Stereo", Glyph::Stereo, 1, 1).setPlaceholder("Width, mid/side, Haas, auto-pan, orbit and routing", 8);
 
     // ---- MODULATION ------------------------------------------------------------
     auto& mod = pages[2];
@@ -229,7 +228,7 @@ void AmbientEditor::timerCallback()
     const bool fresh = hub.update(dt);
     analyzer->tick(fresh, dt);
     header->tick(dt);
-    if (sidechain) sidechain->tick(dt, pages[0].isVisible());
+    if (sidechain) sidechain->tick(dt, pages[1].isVisible());
 }
 
 void AmbientEditor::paint(juce::Graphics& g)
@@ -278,7 +277,12 @@ void AmbientEditor::resized()
         r.removeFromRight(theme::gap);
         // Sound tab: on short layouts the placeholder row collapses to header strips
         // so the Frequency Sidechain keeps a usable graph.
-        pages[0].rowWeights = r.getHeight() < 520 ? std::vector<float> { 0.12f, 1.0f } : std::vector<float> { 1.0f, 2.6f };
+        // Short layouts: placeholder rows collapse to header strips so real modules keep their space.
+        const bool shortLayout = r.getHeight() < 520;
+       #if AMBIENT_IS_INSTRUMENT
+        pages[0].rowWeights = shortLayout ? std::vector<float> { 1.0f, 0.12f } : std::vector<float> { 2.4f, 1.0f };
+       #endif
+        pages[1].rowWeights = shortLayout ? std::vector<float> { 1.0f, 0.12f } : std::vector<float> { 2.6f, 1.0f };
         for (auto& pg : pages) { pg.scale = s; pg.setBounds(r); pg.resized(); }
     }
 }

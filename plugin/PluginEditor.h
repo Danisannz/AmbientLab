@@ -4,6 +4,7 @@
 #include "ui/Backdrop.h"
 #include "ui/HeaderBar.h"
 #include "ui/SidechainPanel.h"
+#include "ui/OscillatorPanel.h"
 #include "ui/UiSettings.h"
 #include "viz/VisualizerHub.h"
 
@@ -73,6 +74,7 @@ private:
     // Real controls (only parameters that exist)
     std::unique_ptr<ambient::ui::RotaryKnob> inputKnob; // FX: track input gain
     std::unique_ptr<ambient::ui::SidechainPanel> sidechain;
+    std::unique_ptr<ambient::ui::OscillatorPanel> oscillators;
     ambient::ui::BypassButton bypassSynth { "Synth" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
 

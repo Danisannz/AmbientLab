@@ -54,5 +54,24 @@ inline std::string bandId(int band, BandField f)
 }
 } // namespace sc
 
+// Oscillator engine (Stage 2). Additive: older states load with defaults.
+namespace osc
+{
+// Per oscillator: "osc.a.<field>" / "osc.b.<field>"
+inline constexpr std::array<std::string_view, 12> oscFields {
+    "on", "wave", "octave", "semi", "fine", "pw", "phase", "free", "level", "unison", "detune", "spread" };
+enum OscField { On = 0, WaveF, Octave, Semi, Fine, Pw, Phase, Free, Level, Unison, Detune, Spread };
+inline std::string oscId(int oscIndex, OscField f)
+{
+    return std::string("osc.") + (oscIndex == 0 ? "a." : "b.") + std::string(oscFields[size_t(f)]);
+}
+inline constexpr std::string_view fm = "osc.fm", pm = "osc.pm";
+inline constexpr std::string_view subOn = "osc.sub.on", subWave = "osc.sub.wave", subOctave = "osc.sub.octave", subLevel = "osc.sub.level";
+inline constexpr std::string_view noiseOn = "osc.noise.on", noiseType = "osc.noise.type", noiseLevel = "osc.noise.level";
+inline constexpr std::string_view drift = "osc.drift";
+inline constexpr std::string_view satMode = "osc.sat.mode", satDrive = "osc.sat.drive", satMix = "osc.sat.mix";
+inline constexpr std::string_view velocity = "osc.velocity";
+} // namespace osc
+
 inline constexpr int kMaxVoices = 8;
 } // namespace ambient::ids

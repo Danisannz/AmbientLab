@@ -5,6 +5,7 @@
 #include <ambient/TestToneSynth.h>
 #include <ambient/StereoCaptureRing.h>
 #include <ambient/dsp/SpectralDucker.h>
+#include <ambient/dsp/SynthEngine.h>
 #include <ambient/ParamIDs.h>
 #include <array>
 
@@ -80,7 +81,9 @@ private:
 
     ambient::Smoother masterGain, inputGain, sourceMix;
     std::array<ambient::DcBlocker, 2> dc;
-    ambient::TestToneSynth synth;
+    ambient::dsp::SynthEngine synth;
+    void readSynthParams();
+    std::vector<std::atomic<float>*> oscRaw; // cached raw parameter pointers (filled in the constructor)
     juce::AudioBuffer<float> synthBuffer; // preallocated in prepareToPlay
     juce::AudioProcessLoadMeasurer loadMeasurer;
 

@@ -8,7 +8,8 @@ placeholders show the stage number; no control appears before its engine exists.
 | 1 | Project foundation, VST3 Instrument + FX, state versioning | Done |
 | UI | Interface redesign, analyzer (scope, vectorscope, spectrum) | Done (branch) |
 | SC | Frequency Sidechain (intelligent spectral ducking) + mascot | Done (branch) - see SIDECHAIN.md |
-| 2 | Oscillators, sub, noise, filter, envelopes | Planned |
+| 2 | Oscillator engine: A/B (5 band-limited waves, unison 7, detune, spread, phase/free), FM/PM B->A, sub, white/pink noise, analog drift, ADAA saturation | Done (branch). Temporary 3 ms/120 ms amp gate until the envelopes. Worst case (8 voices, A+B unison 7, FM, noise, drive): ~10 % of one core at 48 kHz |
+| 3 | Filter + envelopes | Next |
 | 3 | Granular engine | Planned |
 | 4 | Reverb algorithms | Planned |
 | 5 | Delay algorithms | Planned |

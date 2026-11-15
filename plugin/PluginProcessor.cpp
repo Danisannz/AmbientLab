@@ -43,6 +43,45 @@ AmbientProcessor::AmbientProcessor()
     for (int b = 0; b < ids::sc::kBands; ++b)
         for (int f = 0; f < 7; ++f)
             scParams.band[size_t(b)][size_t(f)] = apvts.getRawParameterValue(juce::String(ids::sc::bandId(b, ids::sc::BandField(f))));
+
+    // Oscillator parameters: 2 x 12 per-oscillator fields, then the globals in a fixed order.
+    namespace o = ids::osc;
+    for (int i = 0; i < 2; ++i)
+        for (int f = 0; f < 12; ++f)
+            oscRaw.push_back(apvts.getRawParameterValue(juce::String(o::oscId(i, o::OscField(f)))));
+    for (auto g : { o::fm, o::pm, o::subOn, o::subWave, o::subOctave, o::subLevel, o::noiseOn, o::noiseType,
+                    o::noiseLevel, o::drift, o::satMode, o::satDrive, o::satMix, o::velocity })
+        oscRaw.push_back(raw(g));
+}
+
+void AmbientProcessor::readSynthParams()
+{
+    using P = ambient::dsp::SynthEngine::Params;
+    P p;
+    auto v = [this](size_t i) { return oscRaw[i]->load(); };
+    for (int i = 0; i < 2; ++i)
+    {
+        auto& o = i == 0 ? p.a : p.b;
+        const size_t b = size_t(i) * 12;
+        o.on = v(b + 0) > 0.5f;
+        o.wave = ambient::dsp::Wave(juce::jlimit(0, 4, juce::roundToInt(v(b + 1))));
+        o.octave = juce::roundToInt(v(b + 2));
+        o.semi = juce::roundToInt(v(b + 3));
+        o.fine = v(b + 4);
+        o.pw = v(b + 5);
+        o.phase = v(b + 7) > 0.5f ? -1.0f : v(b + 6); // free-running = negative start phase
+        o.level = v(b + 8);
+        o.unison = juce::roundToInt(v(b + 9));
+        o.detune = v(b + 10);
+        o.spread = v(b + 11);
+    }
+    p.fm = v(24); p.pm = v(25);
+    p.subOn = v(26) > 0.5f; p.subWave = juce::roundToInt(v(27)); p.subOctave = juce::roundToInt(v(28)) == 0 ? -1 : -2; p.subLevel = v(29);
+    p.noiseOn = v(30) > 0.5f; p.noiseType = juce::roundToInt(v(31)); p.noiseLevel = v(32);
+    p.drift = v(33);
+    p.satMode = juce::roundToInt(v(34)); p.satDrive = v(35); p.satMix = v(36);
+    p.velocitySens = v(37);
+    synth.setParams(p);
 }
 
 bool AmbientProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -67,10 +106,10 @@ bool AmbientProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 
 void AmbientProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    synthBuffer.setSize(1, samplesPerBlock, false, true, false);
+    synthBuffer.setSize(2, samplesPerBlock, false, true, false);
     loadMeasurer.reset(sampleRate, samplesPerBlock);
     currentSampleRate.store(sampleRate);
-    synth.prepare(sampleRate);
+    synth.prepare(sampleRate, samplesPerBlock);
     for (auto* s : { &masterGain, &inputGain, &sourceMix }) s->prepare(sampleRate, 20.0f);
     masterGain.reset(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));
     inputGain.reset (juce::Decibels::decibelsToGain(pInputGain->load(),  -60.0f));
@@ -174,23 +213,26 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
     // ---- 2. Synth: sample-accurate MIDI ---------------------------------------
     float* s = synthBuffer.getWritePointer(0);
+    float* sR = synthBuffer.getWritePointer(1);
     juce::FloatVectorOperations::clear(s, n);
+    juce::FloatVectorOperations::clear(sR, n);
+    readSynthParams();
     int pos = 0;
     if (const int nm = midi.getNumEvents(); nm > 0)
         midiEventCount.fetch_add(uint32_t(nm), std::memory_order_relaxed);
     for (const auto meta : midi)
     {
         const int at = juce::jlimit(0, n, meta.samplePosition);
-        synth.render(s, pos, at);
+        synth.render(s, sR, pos, at);
         pos = at;
         handleMidi(meta.getMessage());
     }
-    synth.render(s, pos, n);
+    synth.render(s, sR, pos, n);
     const bool synthOn = pBypassSynth->load() < 0.5f && AMBIENT_IS_INSTRUMENT;
     if (synthOn)
     {
         juce::FloatVectorOperations::add(intL, s, n);
-        juce::FloatVectorOperations::add(intR, s, n);
+        juce::FloatVectorOperations::add(intR, sR, n);
     }
 
     // ---- 3. Frequency sidechain: attenuates the INTERNAL signal only -----------

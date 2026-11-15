@@ -117,6 +117,49 @@ Layout createParameterLayout()
         layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(F::BRelease), v2 }, nm("Release"), logRange(10.0f, 1000.0f), 120.0f, msAttr));
     }
 
+    // ---- Oscillator engine (Stage 2). Parameter version hint 3. ----
+    {
+        constexpr int v3 = 3;
+        namespace o = ids::osc;
+        const juce::StringArray waves { "Sine", "Triangle", "Saw", "Square", "Pulse" };
+        auto cents = juce::AudioParameterFloatAttributes().withLabel("ct")
+            .withStringFromValueFunction([](float x, int) { return (x > 0.05f ? "+" : "") + juce::String(x, 1) + " ct"; });
+        auto deg = juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction([](float x, int) { return juce::String(juce::roundToInt(x * 360.0f)) + juce::String(juce::CharPointer_UTF8("\xc2\xb0")); });
+        for (int i = 0; i < 2; ++i)
+        {
+            const auto pid = [i](o::OscField f) { return juce::String(o::oscId(i, f)); };
+            const juce::String nm = i == 0 ? "Osc A " : "Osc B ";
+            layout.add(std::make_unique<juce::AudioParameterBool>(PID { pid(o::On), v3 }, nm + "On", i == 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(PID { pid(o::WaveF), v3 }, nm + "Wave", waves, i == 0 ? 2 : 3));
+            layout.add(std::make_unique<juce::AudioParameterInt>(PID { pid(o::Octave), v3 }, nm + "Octave", -3, 3, 0));
+            layout.add(std::make_unique<juce::AudioParameterInt>(PID { pid(o::Semi), v3 }, nm + "Semitone", -12, 12, i == 0 ? 0 : 7));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(o::Fine), v3 }, nm + "Fine", juce::NormalisableRange<float> { -100.0f, 100.0f, 0.1f }, 0.0f, cents));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(o::Pw), v3 }, nm + "Pulse Width", juce::NormalisableRange<float> { 0.05f, 0.95f }, 0.5f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(o::Phase), v3 }, nm + "Phase", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f, deg));
+            layout.add(std::make_unique<juce::AudioParameterBool>(PID { pid(o::Free), v3 }, nm + "Free Phase", false));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(o::Level), v3 }, nm + "Level", juce::NormalisableRange<float> { 0.0f, 1.0f }, i == 0 ? 0.7f : 0.5f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterInt>(PID { pid(o::Unison), v3 }, nm + "Unison", 1, 7, i == 0 ? 3 : 1));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(o::Detune), v3 }, nm + "Detune", juce::NormalisableRange<float> { 0.0f, 100.0f, 0.1f }, 12.0f, cents));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(o::Spread), v3 }, nm + "Spread", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.6f, pctAttr));
+        }
+        auto P3 = [&](std::string_view i) { return PID { id(i), v3 }; };
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::fm), "FM B > A", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::pm), "PM B > A", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterBool>(P3(o::subOn), "Sub On", true));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(P3(o::subWave), "Sub Wave", juce::StringArray { "Sine", "Square", "Triangle" }, 0));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(P3(o::subOctave), "Sub Octave", juce::StringArray { "-1 oct", "-2 oct" }, 0));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::subLevel), "Sub Level", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.3f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterBool>(P3(o::noiseOn), "Noise On", false));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(P3(o::noiseType), "Noise Type", juce::StringArray { "White", "Pink" }, 1));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::noiseLevel), "Noise Level", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.15f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::drift), "Analog Drift", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.25f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(P3(o::satMode), "Saturation Mode", juce::StringArray { "Soft", "Asym", "Fold" }, 0));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::satDrive), "Saturation Drive", juce::NormalisableRange<float> { 0.0f, 36.0f, 0.1f }, 0.0f, dbAttr("dB")));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::satMix), "Saturation Mix", juce::NormalisableRange<float> { 0.0f, 1.0f }, 1.0f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::velocity), "Velocity Sensitivity", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.6f, pctAttr));
+    }
+
     return layout;
 }
 } // namespace ambient
