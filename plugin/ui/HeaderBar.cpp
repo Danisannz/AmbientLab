@@ -78,7 +78,7 @@ void HeaderBar::tick(float dt)
     {
         infoTimer = 0.0f;
         const auto cpu = juce::String(proc.getCpuLoad() * 100.0, 1) + " %";
-        const auto sr  = juce::String(proc.currentSampleRate.load() / 1000.0, 1) + " kHz";
+        const auto sr  = juce::String(proc.currentSampleRate.load() / 1000.0, 1) + " kHz" + (proc.isHighQualityActive() ? " HQ" : "");
         if (cpu != cpuText) { cpuText = cpu; repaint(cpuCell); }
         if (sr != srText)   { srText = sr;   repaint(rateCell); }
     }
@@ -141,7 +141,13 @@ void HeaderBar::showMainMenu()
     gfx.addItem(204, "Mascot animation (reacts to sidechain kicks)", true, isMascotOn && isMascotOn());
 
     juce::PopupMenu audio;
-    audio.addItem(301, "No audio quality options yet - they arrive with the DSP engines", false, false);
+   #if AMBIENT_IS_INSTRUMENT
+    const bool hq = proc.apvts.getRawParameterValue("global.quality")->load() > 0.5f;
+    audio.addItem(301, "Standard (default)", true, ! hq);
+    audio.addItem(302, "High Quality - 4x oversampled synth voices (less aliasing, ~4x synth CPU)", true, hq);
+   #else
+    audio.addItem(301, "Standard - the FX engines gain nothing from oversampling (see docs/QUALITY.md)", false, true);
+   #endif
 
     juce::PopupMenu m;
     m.addSectionHeader("Settings");
@@ -158,6 +164,8 @@ void HeaderBar::showMainMenu()
                         else if (r == 202 && onQualityChosen) onQualityChosen(GraphicsQuality::High);
                         else if (r == 203 && onRenderStatsChanged) onRenderStatsChanged(! (isRenderStatsOn && isRenderStatsOn()));
                         else if (r == 204 && onMascotChanged) onMascotChanged(! (isMascotOn && isMascotOn()));
+                        else if ((r == 301 || r == 302) && AMBIENT_IS_INSTRUMENT)
+                            if (auto* q = proc.apvts.getParameter("global.quality")) q->setValueNotifyingHost(r == 302 ? 1.0f : 0.0f);
                     });
 }
 

@@ -69,6 +69,10 @@ public:
     };
 
     void prepare(double sampleRate, int maxBlock);
+    /** Live change of the internal processing rate (High Quality oversampling): no allocation,
+        voices keep sounding; every rate-dependent coefficient is recomputed per control block. */
+    void setInternalRate(double sampleRate) noexcept;
+    double getInternalRate() const noexcept { return sr; }
     void reset();
     void setParams(const Params& p) noexcept { params = p; }
     const Params& getParams() const noexcept { return params; }

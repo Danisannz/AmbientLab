@@ -14,6 +14,7 @@
 #include "ModDestinations.h"
 #include "TripleBuffer.h"
 #include <ambient/dsp/Sequencer.h>
+#include <ambient/dsp/HalfbandIir.h>
 #include <ambient/ParamIDs.h>
 #include <array>
 
@@ -166,6 +167,16 @@ private:
     // ---- Routing (Stage 9) -----------------------------------------------------
     std::vector<PRef> routeRaw;                        // mode order feedback fxGain
     void processChain(float* L, float* R, int n) noexcept;
+
+    // ---- High Quality mode (synth voices rendered at 4x, IIR half-band decimation) ----
+    std::atomic<float>* pQuality = nullptr;
+    juce::AudioBuffer<float> synthOs;                  // 2 x (4 * maxBlock), preallocated
+    std::array<ambient::dsp::Decimator4x, 2> decim;
+    bool hqActive = false;
+    float hqFade = 1.0f;                               // synth output gain during a mode switch
+public:
+    bool isHighQualityActive() const noexcept { return hqActive; }
+private:
     void processModule(int module, float* L, float* R, int n) noexcept;   // 0 granular, 1 delay, 2 reverb
     std::array<std::array<float, 32>, 2> fbRing {}, parSrc {}, parWork {}, parAcc {};
     std::array<float, 2> fbHp {}, fbDc {};

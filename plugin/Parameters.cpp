@@ -41,12 +41,12 @@ Layout createParameterLayout()
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         PID { id(ids::masterGain), v }, "Master Gain",
-        juce::NormalisableRange<float> { -60.0f, 12.0f, 0.01f, 2.0f }, 0.0f,
+        juce::NormalisableRange<float> { -60.0f, 12.0f, 0.01f, 2.0f }, -12.0f,   // default -12 dB (headroom)
         juce::AudioParameterFloatAttributes().withLabel("dB").withStringFromValueFunction(formatDb).withValueFromStringFunction(parseDb)));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         PID { id(ids::inputGain), v }, "Input Gain",
-        juce::NormalisableRange<float> { -60.0f, 12.0f, 0.01f, 2.0f }, 0.0f,
+        juce::NormalisableRange<float> { -60.0f, 12.0f, 0.01f, 2.0f }, -12.0f,   // default -12 dB (headroom)
         juce::AudioParameterFloatAttributes().withLabel("dB").withStringFromValueFunction(formatDb).withValueFromStringFunction(parseDb)));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
@@ -307,6 +307,10 @@ Layout createParameterLayout()
             for (int l = 1; l <= 4; ++l)
                 layout.add(std::make_unique<juce::AudioParameterChoice>(P8("seq.lock" + juce::String(l)), "Seq Lock " + juce::String(l) + " Target", lockDst, 0));
         }
+
+        // ---- Audio quality (Instrument synth voices: 4x oversampling) ----
+        layout.add(std::make_unique<juce::AudioParameterChoice>(PID { "global.quality", 10 }, "Audio Quality",
+            juce::StringArray { "Standard", "High Quality" }, 0, juce::AudioParameterChoiceAttributes().withAutomatable(false)));
 
         // ---- Routing (Stage 9) ----
         {

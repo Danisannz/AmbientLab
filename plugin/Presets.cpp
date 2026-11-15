@@ -97,8 +97,10 @@ void applyFactory(AmbientProcessor& p, int index)
 {
     if (! juce::isPositiveAndBelow(index, numFactory())) return;
     const auto& f = factory()[size_t(index)];
-    for (auto* prm : p.getParameters())                       // start from defaults
-        if (auto* r = dynamic_cast<juce::RangedAudioParameter*>(prm)) r->setValueNotifyingHost(r->getDefaultValue());
+    for (auto* prm : p.getParameters())                       // start from defaults ...
+        if (auto* r = dynamic_cast<juce::RangedAudioParameter*>(prm))
+            if (r->getParameterID() != "global.masterGain")   // ... except the user's monitoring level
+                r->setValueNotifyingHost(r->getDefaultValue());
     for (const auto& [pid, v] : f.values) setPlain(p, pid, v);
     int slot = 1;
     for (const auto& m : f.mods)

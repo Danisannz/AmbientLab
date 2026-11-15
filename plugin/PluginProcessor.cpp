@@ -57,6 +57,7 @@ AmbientProcessor::AmbientProcessor()
     pInputGain   = raw(ids::inputGain);
     pSourceMix   = apvts.getRawParameterValue(id(ids::sourceMix));
     pBypassSynth = apvts.getRawParameterValue(id(ids::bypassSynth));
+    pQuality     = apvts.getRawParameterValue("global.quality");
 
     for (int l = 0; l < 4; ++l)
     {
@@ -216,7 +217,11 @@ void AmbientProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     synthBuffer.setSize(2, samplesPerBlock, false, true, false);
     loadMeasurer.reset(sampleRate, samplesPerBlock);
     currentSampleRate.store(sampleRate);
-    synth.prepare(sampleRate, samplesPerBlock);
+    synthOs.setSize(2, samplesPerBlock * 4, false, true, false);
+    hqActive = AMBIENT_IS_INSTRUMENT && pQuality->load() > 0.5f;
+    hqFade = 1.0f;
+    for (auto& d : decim) d.reset();
+    synth.prepare(hqActive ? sampleRate * 4.0 : sampleRate, samplesPerBlock);
     granular.prepare(sampleRate, samplesPerBlock); // 10 s stereo buffer, allocated here only
     readReverbParams();
     reverb.prepare(sampleRate, samplesPerBlock);   // delay lines sized for size x2 at this rate, allocated here only
@@ -636,6 +641,21 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
             seqN = sequencer.numEvents();
             seqCurrentStep.store(sequencer.currentStep(), std::memory_order_relaxed);
         }
+        // High Quality: switch only while the synth output is faded out (no clicks, voices keep sounding)
+        const bool wantHq = AMBIENT_IS_INSTRUMENT && pQuality->load(std::memory_order_relaxed) > 0.5f;
+        if (wantHq != hqActive && hqFade <= 0.0f)
+        {
+            hqActive = wantHq;
+            synth.setInternalRate(getSampleRate() * (hqActive ? 4.0 : 1.0));
+            for (auto& d : decim) d.reset();
+        }
+        const float fade0 = hqFade;
+        hqFade = juce::jlimit(0.0f, 1.0f, hqFade + (wantHq != hqActive ? -0.5f : 0.5f));   // 64-sample ramps
+        const int os = hqActive ? 4 : 1;
+        float* rl = hqActive ? synthOs.getWritePointer(0) : s;
+        float* rr = hqActive ? synthOs.getWritePointer(1) : sR;
+        if (hqActive) { juce::FloatVectorOperations::clear(rl + start * 4, len * 4); juce::FloatVectorOperations::clear(rr + start * 4, len * 4); }
+
         readSynthParams();
         int pos = start, si = 0;
         auto seqAt = [&](int i) { return start + sequencer.event(i).sampleOffset; };
@@ -643,7 +663,7 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         {
             const bool takeMidi = ev != midi.cend() && (*ev).samplePosition < end && (si >= seqN || (*ev).samplePosition <= seqAt(si));
             const int at = juce::jlimit(pos, end, takeMidi ? (*ev).samplePosition : seqAt(si));
-            synth.render(s, sR, pos, at);
+            synth.render(rl, rr, pos * os, at * os);
             pos = at;
             if (takeMidi) { handleMidi((*ev).getMessage()); ++ev; }
             else
@@ -653,7 +673,18 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                 else { handleMidi(juce::MidiMessage::noteOff(1, e.note)); seqNotesOn = juce::jmax(0, seqNotesOn - 1); }
             }
         }
-        synth.render(s, sR, pos, end);
+        synth.render(rl, rr, pos * os, end * os);
+        if (hqActive)
+        {
+            decim[0].process(rl + start * 4, s + start, len);
+            decim[1].process(rr + start * 4, sR + start, len);
+        }
+        if (fade0 < 1.0f || hqFade < 1.0f)
+            for (int i = 0; i < len; ++i)
+            {
+                const float g = fade0 + (hqFade - fade0) * float(i + 1) / float(len);
+                s[start + i] *= g; sR[start + i] *= g;
+            }
         if (synthOn)
         {
             juce::FloatVectorOperations::add(intL + start, s + start, len);

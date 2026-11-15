@@ -11,6 +11,8 @@ add_executable(ambient_tests
     test_delay.cpp
     test_lfo.cpp
     test_sequencer.cpp
+    eval_quality.cpp
+    test_highquality.cpp
 )
 target_link_libraries(ambient_tests PRIVATE ambient_core Catch2::Catch2WithMain)
 find_package(Threads REQUIRED)

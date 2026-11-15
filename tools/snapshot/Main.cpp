@@ -214,8 +214,9 @@ static int runSelfTest()
         check(leak == 0.0f, "no sidechain leakage into the output (synth bypassed)");
         check(p.sidechainTelemetry().referencePresent.load(), "sidechain reference detected");
 
-        // Listen: the reference is monitored on purpose.
+        // Listen: the reference is monitored on purpose (unity master for an absolute level check).
         setParam(p, "sc.listen", 1.0f);
+        setParam(p, "global.masterGain", 0.0f);
         float heard = 0.0f;
         for (int b = 0; b < 20; ++b)
         {
@@ -696,6 +697,100 @@ static int runSelfTest()
         }
     }
 
+    // Master default -12 dB + High Quality mode (Instrument).
+    {
+        auto fresh = [&]()
+        {
+            auto p = std::make_unique<AmbientProcessor>();
+            p->setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                         juce::AudioChannelSet::stereo()));
+            p->setRateAndBufferSizeDetails(sr, 512);
+            p->prepareToPlay(sr, 512);
+            return p;
+        };
+        {
+            auto p = fresh();
+            const float def = p->apvts.getRawParameterValue("global.masterGain")->load();
+            std::printf("       master default: %.2f dB (\"%s\")\n", def, p->apvts.getParameter("global.masterGain")->getCurrentValueAsText().toRawUTF8());
+            check(std::abs(def + 12.0f) < 1e-3f, "master output defaults to -12 dB");
+            // the master is the last gain stage: output at -12 dB is the 0 dB output x 0.251
+            auto q = fresh(); setParam(*q, "global.masterGain", 0.0f);
+            const int ch = juce::jmax(p->getTotalNumInputChannels(), p->getTotalNumOutputChannels(), 2);
+            juce::AudioBuffer<float> a(ch, 512), b(ch, 512); juce::MidiBuffer on, none; on.addEvent(juce::MidiMessage::noteOn(1, 45, 0.5f), 0);
+            double ea = 0, eb = 0; long t = 0;
+            for (int blk = 0; blk < 120; ++blk)
+            {
+                a.clear(); b.clear();
+               #if ! AMBIENT_IS_INSTRUMENT
+                for (int i = 0; i < 512; ++i) { const float x = 0.2f * float(std::sin(2 * kPi * 220.0 * double(t + i) / sr)); for (auto* bb : { &a, &b }) { bb->setSample(0, i, x); bb->setSample(1, i, x); } }
+               #endif
+                p->processBlock(a, blk == 0 ? on : none); q->processBlock(b, blk == 0 ? on : none); t += 512;
+                if (blk > 40) { ea += a.getRMSLevel(0, 0, 512); eb += b.getRMSLevel(0, 0, 512); }
+            }
+            const double diffDb = 20.0 * std::log10(ea / eb);
+            std::printf("       output -12 dB vs 0 dB master: %.2f dB\n", diffDb);
+            check(std::abs(diffDb + 12.0) < 0.3, "master gain is an exact final-stage gain (-12 dB = 12 dB quieter, nothing compensates)");
+            setParam(*q, "global.masterGain", -7.5f);
+            juce::MemoryBlock mb; q->getStateInformation(mb);
+            auto r = fresh(); r->setStateInformation(mb.getData(), int(mb.getSize()));
+            check(std::abs(r->apvts.getRawParameterValue("global.masterGain")->load() + 7.5f) < 0.02f, "a user master level persists through the state");
+            r->setCurrentProgram(2);
+            check(std::abs(r->apvts.getRawParameterValue("global.masterGain")->load() + 7.5f) < 0.02f, "loading a factory preset keeps the user's master level");
+        }
+       #if AMBIENT_IS_INSTRUMENT
+        {
+            // CPU: default patch and worst case, Standard vs HQ
+            auto cpuOf = [&](bool hq, bool worst)
+            {
+                auto p = fresh();
+                setParam(*p, "global.quality", hq ? 1.0f : 0.0f);
+                p->prepareToPlay(sr, 512);
+                if (worst) { setParam(*p, "osc.a.unison", 7.0f); setParam(*p, "osc.b.on", 1.0f); setParam(*p, "osc.b.unison", 7.0f); setParam(*p, "osc.sat.drive", 12.0f); }
+                juce::AudioBuffer<float> buf(2, 512); juce::MidiBuffer on, none;
+                for (int nn = 0; nn < 8; ++nn) on.addEvent(juce::MidiMessage::noteOn(1, 48 + nn * 3, 0.8f), 0);
+                const int blocks = int(sr * 3.0 / 512);
+                double t0 = 0;
+                for (int b = 0; b < blocks; ++b) { if (b == blocks / 4) t0 = juce::Time::getMillisecondCounterHiRes(); buf.clear(); p->processBlock(buf, b == 0 ? on : none); }
+                return 100.0 * (juce::Time::getMillisecondCounterHiRes() - t0) / ((blocks - blocks / 4) * 512 * 1000.0 / sr);
+            };
+            const double s0 = cpuOf(false, false), h0 = cpuOf(true, false), s1 = cpuOf(false, true), h1 = cpuOf(true, true);
+            std::printf("       CPU 8 voices, default patch: Standard %.2f %%, HQ %.2f %%;  worst case (A+B unison 7): Standard %.2f %%, HQ %.2f %%\n", s0, h0, s1, h1);
+            check(h1 < 60.0, "HQ worst case stays usable (< 60 % of one core)");
+
+            // switching modes during a held note: no click, voices keep sounding, same level
+            auto p = fresh();
+            setParam(*p, "osc.a.wave", 0.0f);   // sine: any discontinuity would show as a large sample step
+            setParam(*p, "osc.a.unison", 1.0f);
+            setParam(*p, "osc.drift", 0.0f);      // drift is a random walk stepped per control block: its path differs per rate
+            juce::AudioBuffer<float> buf(2, 512); juce::MidiBuffer on, none; on.addEvent(juce::MidiMessage::noteOn(1, 57, 0.8f), 0);
+            std::vector<float> outL; std::vector<float> rms;
+            for (int b = 0; b < 300; ++b)
+            {
+                if (b == 100) setParam(*p, "global.quality", 1.0f);
+                if (b == 200) setParam(*p, "global.quality", 0.0f);
+                buf.clear(); p->processBlock(buf, b == 0 ? on : none);
+                for (int i = 0; i < 512; ++i) outL.push_back(buf.getSample(0, i));
+                rms.push_back(buf.getRMSLevel(0, 0, 512));
+                if (b == 150) check(p->isHighQualityActive(), "HQ becomes active after the switch");
+            }
+            float maxStep = 0; for (size_t i = 20000; i < outL.size(); ++i) maxStep = std::max(maxStep, std::abs(outL[i] - outL[i - 1]));
+            const float sineStep = float(2 * kPi * 220.0 / sr) * 0.6f;   // ~ max step of the steady note
+            const double lvl = 20 * std::log10(rms[150] / rms[90]);
+            std::printf("       mode switch during a held note: max sample step %.4f (steady ~%.4f), HQ vs Standard level %.2f dB\n", maxStep, sineStep, lvl);
+            check(maxStep < 3.0f * sineStep + 0.01f, "switching Standard <-> HQ mid-note does not click");
+            // level: an always-Standard instance vs this one at the same moment, while it runs in HQ
+            auto ref = fresh();
+            setParam(*ref, "osc.a.wave", 0.0f); setParam(*ref, "osc.a.unison", 1.0f); setParam(*ref, "osc.drift", 0.0f);
+            std::vector<float> refRms;
+            for (int b = 0; b < 300; ++b) { buf.clear(); ref->processBlock(buf, b == 0 ? on : none); refRms.push_back(buf.getRMSLevel(0, 0, 512)); }
+            const double hqVsStd = 20 * std::log10(rms[150] / refRms[150]);
+            std::printf("       same moment, HQ instance vs Standard instance: %.3f dB (block-to-block drift of the note itself: %.2f dB)\n", hqVsStd, lvl);
+            check(rms[290] > 0.5f * refRms[290] && std::abs(hqVsStd) < 0.25, "the note keeps sounding at the same level through both switches");
+            check(p->getLatencySamples() == 0, "HQ adds no reported latency");
+        }
+       #endif
+    }
+
     // Stage 9: presets, routing, automation fuzz.
     {
         auto fresh = [&]()
@@ -750,7 +845,7 @@ static int runSelfTest()
             setParam(*p, "seq.clock", 1.0f);   // sequenced presets: internal clock (no host transport here)
             const auto st = play(*p, 3.0);
             std::printf("         %-20s %6.3f  %5.3f  %5.2f %%  %s\n", ambient::presets::factoryName(i).toRawUTF8(), st.rms, st.peak, st.cpu, p->getPresetName().toRawUTF8());
-            presetsOk = presetsOk && st.finite && st.rms > 0.003 && st.peak <= 1.0f && p->getPresetName() == ambient::presets::factoryName(i);
+            presetsOk = presetsOk && st.finite && st.rms > 0.0008 &&   /* -12 dB master default */ st.peak <= 1.0f && p->getPresetName() == ambient::presets::factoryName(i);
         }
         check(presetsOk, "every factory preset loads, plays, stays finite and below full scale");
 

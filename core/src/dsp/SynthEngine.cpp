@@ -31,6 +31,13 @@ void SynthEngine::prepare(double sampleRate, int)
     reset();
 }
 
+void SynthEngine::setInternalRate(double sampleRate) noexcept
+{
+    if (sampleRate <= 0.0 || sampleRate == sr) return;
+    sr = sampleRate;
+    for (auto& v : voices) { v.amp.setSampleRate(sr); v.mod.setSampleRate(sr); }
+}
+
 void SynthEngine::reset()
 {
     for (auto& v : voices)
