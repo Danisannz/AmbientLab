@@ -3,6 +3,7 @@
 // the sidechain path in every layout a host may present.
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_events/juce_events.h>
+#include <pluginterfaces/vst/ivstcomponent.h>
 #include <cmath>
 #include <cstdio>
 
@@ -31,6 +32,12 @@ float norm(juce::AudioProcessor& p, const juce::String& name, float plain)
 
 struct Result { double outRms = 0, outPeak = 0; };
 
+int busIndex(juce::AudioProcessor& p, const juce::String& name)
+{
+    for (int i = 0; i < p.getBusCount(true); ++i) if (p.getBus(true, i)->getName() == name) return i;
+    return -1;
+}
+
 /** Runs `seconds` of audio. Main input (if any) gets a 220 Hz + noise pad, sidechain gets
     50 ms 60 Hz kicks every 500 ms. Instrument: a held chord. Returns stats over the 2nd half. */
 Result run(juce::AudioPluginInstance& p, bool instrument, bool feedMain, bool feedSc, double seconds = 3.0)
@@ -50,16 +57,17 @@ Result run(juce::AudioPluginInstance& p, bool instrument, bool feedMain, bool fe
     for (int b = 0; b < blocks; ++b)
     {
         buf.clear();
-        if (feedMain && p.getBusCount(true) > 0 && p.getBus(true, 0)->isEnabled())
+        const int mainIdx = busIndex(p, "Input"), scIdx = busIndex(p, "Sidechain");
+        if (feedMain && mainIdx >= 0 && p.getBus(true, mainIdx)->isEnabled())
         {
-            auto in = p.getBusBuffer(buf, true, 0);
+            auto in = p.getBusBuffer(buf, true, mainIdx);
             for (int c = 0; c < in.getNumChannels(); ++c)
                 for (int i = 0; i < bs; ++i)
                     in.setSample(c, i, 0.25f * float(std::sin(2 * juce::MathConstants<double>::pi * 55.0 * double(t + i) / sr)) + 0.1f * (rng.nextFloat() - 0.5f));
         }
-        if (feedSc && p.getBusCount(true) > 1 && p.getBus(true, 1)->isEnabled())
+        if (feedSc && scIdx >= 0 && p.getBus(true, scIdx)->isEnabled())
         {
-            auto sc = p.getBusBuffer(buf, true, 1);
+            auto sc = p.getBusBuffer(buf, true, scIdx);
             for (int c = 0; c < sc.getNumChannels(); ++c)
                 for (int i = 0; i < bs; ++i)
                 {
@@ -111,12 +119,32 @@ int main(int argc, char** argv)
 
     // ---- 1. What the host sees by default (no layout negotiation at all) ----
     std::printf("default layout: %s\n", describe(*p).toRawUTF8());
-    check(p->getBusCount(true) >= 2, "VST3 exposes a second (aux) input bus");
-    if (p->getBusCount(true) >= 2)
-    {
-        check(p->getBus(true, 1)->getName() == "Sidechain", "aux bus is named 'Sidechain'");
-        check(p->getBus(true, 1)->isEnabled(), "sidechain bus is active by default (hosts that never call activateBus still deliver audio)");
-    }
+    const int sc = busIndex(*p, "Sidechain");
+    check(sc >= 0, "plugin exposes a 'Sidechain' input bus");
+    if (sc < 0) return 1;
+    check(p->getBus(true, sc)->isEnabled(), "sidechain bus is active by default (hosts that never call activateBus still deliver audio)");
+    if (instrument) check(p->getBusCount(true) == 1, "instrument: the sidechain is the only input bus");
+
+    // What a DAW reads: VST3 bus type of every input bus (kMain / kAux).
+    if (auto* v3 = p->getVST3Client())
+        if (auto* comp = v3->getIComponentPtr())
+        {
+            const auto count = comp->getBusCount(Steinberg::Vst::kAudio, Steinberg::Vst::kInput);
+            for (Steinberg::int32 i = 0; i < count; ++i)
+            {
+                Steinberg::Vst::BusInfo info {};
+                comp->getBusInfo(Steinberg::Vst::kAudio, Steinberg::Vst::kInput, i, info);
+                const bool aux = info.busType == Steinberg::Vst::kAux;
+                const bool defActive = (info.flags & Steinberg::Vst::BusInfo::kDefaultActive) != 0;
+                std::printf("  VST3 input bus %d: %d ch, %s, %s\n", int(i), int(info.channelCount), aux ? "kAux" : "kMain", defActive ? "default active" : "default inactive");
+                if (i == sc)
+                {
+                    check(aux, "sidechain is declared to the host as a VST3 aux bus");
+                    check(defActive, "sidechain bus is flagged default-active to the host");
+                }
+                else check(! aux, "track input is declared as the VST3 main bus");
+            }
+        }
 
     setParam(*p, "Master Gain", norm(*p, "Master Gain", 0.0f));
     if (! instrument) setParam(*p, "Input Gain", norm(*p, "Input Gain", 0.0f));
@@ -133,8 +161,7 @@ int main(int argc, char** argv)
     for (auto scSet : { juce::AudioChannelSet::stereo(), juce::AudioChannelSet::mono() })
     {
         auto layout = p->getBusesLayout();
-        if (layout.inputBuses.size() < 2) break;
-        layout.inputBuses.getReference(1) = scSet;
+        layout.inputBuses.getReference(sc) = scSet;
         const juce::String tag = "[" + scSet.getDescription() + " sidechain] ";
         p->releaseResources();
         const bool accepted = p->setBusesLayout(layout);
@@ -166,9 +193,9 @@ int main(int argc, char** argv)
     // ---- 3. Host disables the sidechain: plugin keeps working, no crash ----
     {
         auto layout = p->getBusesLayout();
-        if (layout.inputBuses.size() >= 2)
         {
-            layout.inputBuses.getReference(1) = juce::AudioChannelSet::disabled();
+            p->releaseResources();
+            layout.inputBuses.getReference(sc) = juce::AudioChannelSet::disabled();
             check(p->setBusesLayout(layout), "sidechain bus can be disabled");
             const auto r = run(*p, instrument, ! instrument, true);
             check(r.outRms > 1.0e-3, "plugin works normally without a sidechain");

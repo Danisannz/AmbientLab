@@ -6,3 +6,5 @@ target_sources(AmbientVst3HostTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Main.cpp)
 target_compile_definitions(AmbientVst3HostTest PRIVATE
     JUCE_PLUGINHOST_VST3=1 JUCE_ALSA=0 JUCE_JACK=0 JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(AmbientVst3HostTest PRIVATE juce::juce_audio_utils juce::juce_recommended_config_flags)
+# VST3 SDK interfaces (shipped with JUCE) to inspect the bus types exactly as a DAW sees them.
+target_include_directories(AmbientVst3HostTest PRIVATE ${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK)

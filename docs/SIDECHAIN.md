@@ -146,3 +146,16 @@ raw RMS/peak, whether non-zero samples are arriving, detector gain reduction.
 Host notes: in Ableton Live, choose the source in the plugin's Sidechain section; in Reaper,
 route the send to channels 3/4; in FL Studio, select the source in the mixer's sidechain
 routing. Whether a host offers sidechain inputs to *instrument* plugins depends on the host.
+
+
+## Instrument in Ableton Live (2026-11-15)
+
+The FX worked in Live but the Instrument did not. JUCE declares the first input bus as the
+VST3 *main* input; the Instrument's first bus was an unused, disabled "Input", with "Sidechain"
+second, and Live kept the sidechain off. The Instrument now has a single input bus, "Sidechain",
+declared kAux via `VST3ClientExtensions::getPluginHasMainInput() == false` (the JUCE-recommended
+layout for synths with a sidechain). The FX keeps main input + sidechain aux. The VST3 host test
+reads each bus's VST3 type and default-active flag exactly as a DAW does.
+
+After updating: in Live, rescan plug-ins and re-insert AmbientLab (the bus layout changed), then
+pick the kick track in the device's Sidechain section.

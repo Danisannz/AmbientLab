@@ -16,6 +16,16 @@
 class AmbientProcessor : public juce::AudioProcessor
 {
 public:
+    /** Input bus indices. Instrument: ONE input bus, the sidechain, declared VST3 kAux (no main
+        input) - Ableton Live and other hosts route their sidechain chooser into it. FX: main input
+        (the track) + sidechain aux. */
+   #if AMBIENT_IS_INSTRUMENT
+    static constexpr int kMainBus = -1, kScBus = 0;
+   #else
+    static constexpr int kMainBus = 0, kScBus = 1;
+   #endif
+    juce::VST3ClientExtensions* getVST3ClientExtensions() override { return &vst3Extensions; }
+
     AmbientProcessor();
     ~AmbientProcessor() override = default;
 
@@ -54,6 +64,10 @@ public:
 
     /** Set by the editor; the audio thread only feeds the capture ring while true. */
     std::atomic<bool> editorOpen { false };
+    struct Vst3Ext : juce::VST3ClientExtensions
+    {
+        bool getPluginHasMainInput() const override { return AMBIENT_IS_INSTRUMENT == 0; }
+    } vst3Extensions;
 
     /** Sidechain input diagnostics (audio thread -> UI, lock-free). Raw samples, before SC gain. */
     struct SidechainDiagnostics

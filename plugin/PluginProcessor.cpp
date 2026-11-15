@@ -15,10 +15,10 @@ juce::AudioProcessor::BusesProperties AmbientProcessor::makeBuses()
     // calling activateBus() would otherwise deliver 0 channels (the original bug).
     // An unrouted sidechain simply receives silence.
 #if AMBIENT_IS_INSTRUMENT
+    // Instrument: the sidechain is the only input bus (reported to VST3 hosts as kAux).
     return juce::AudioProcessor::BusesProperties()
-        .withInput ("Input", juce::AudioChannelSet::stereo(), false)
-        .withOutput("Output", juce::AudioChannelSet::stereo(), true)
-        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), true);
+        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), true)
+        .withOutput("Output", juce::AudioChannelSet::stereo(), true);
 #else
     return juce::AudioProcessor::BusesProperties()
         .withInput ("Input",  juce::AudioChannelSet::stereo(), true)
@@ -160,18 +160,14 @@ void AmbientProcessor::readSynthParams()
 bool AmbientProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo()) return false;
-    if (layouts.inputBuses.size() > 0)
+    if (kMainBus >= 0 && layouts.inputBuses.size() > kMainBus)
     {
-        const auto& main = layouts.inputBuses[0];
-       #if AMBIENT_IS_INSTRUMENT
-        if (! main.isDisabled() && main != juce::AudioChannelSet::stereo()) return false;
-       #else
+        const auto& main = layouts.inputBuses[kMainBus];   // FX track input: mono or stereo
         if (main != juce::AudioChannelSet::stereo() && main != juce::AudioChannelSet::mono()) return false;
-       #endif
     }
-    if (layouts.inputBuses.size() > 1)
+    if (layouts.inputBuses.size() > kScBus)
     {
-        const auto& sc = layouts.inputBuses[1]; // sidechain: off, mono or stereo
+        const auto& sc = layouts.inputBuses[kScBus];       // sidechain: off, mono or stereo
         if (! sc.isDisabled() && sc != juce::AudioChannelSet::mono() && sc != juce::AudioChannelSet::stereo()) return false;
     }
     return true;
@@ -261,16 +257,16 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     // Sidechain reference (aux bus 1): mono or stereo, with its own input gain.
     // Never assumes stereo or enabled; checks the channels really exist in this buffer.
     bool hasRef = false;
-    const bool scEnabled = getBusCount(true) > 1 && getBus(true, 1)->isEnabled();
+    const bool scEnabled = getBusCount(true) > kScBus && getBus(true, kScBus)->isEnabled();
     int scChannels = 0;
     float scPk = 0.0f; double scSq = 0.0;
     if (scEnabled)
     {
-        const int offset = getChannelIndexInProcessBlockBuffer(true, 1, 0);
-        scChannels = juce::jlimit(0, juce::jmax(0, buffer.getNumChannels() - offset), getBus(true, 1)->getNumberOfChannels());
+        const int offset = getChannelIndexInProcessBlockBuffer(true, kScBus, 0);
+        scChannels = juce::jlimit(0, juce::jmax(0, buffer.getNumChannels() - offset), getBus(true, kScBus)->getNumberOfChannels());
         if (scChannels >= 1)
         {
-            auto sc = getBusBuffer(buffer, true, 1);
+            auto sc = getBusBuffer(buffer, true, kScBus);
             scGain.setTarget(juce::Decibels::decibelsToGain(scParams.inputGain->load()));
             const float* a = sc.getReadPointer(0);
             const float* b = sc.getReadPointer(juce::jmin(1, scChannels - 1));
@@ -294,9 +290,9 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     // FX: the track input is the internal signal (bus 0). Instrument: no main input.
     bool hasMain = false;
    #if ! AMBIENT_IS_INSTRUMENT
-    if (getBusCount(true) > 0 && getBus(true, 0)->isEnabled())
+    if (kMainBus >= 0 && getBusCount(true) > kMainBus && getBus(true, kMainBus)->isEnabled())
     {
-        auto in = getBusBuffer(buffer, true, 0);
+        auto in = getBusBuffer(buffer, true, kMainBus);
         if (in.getNumChannels() >= 1)
         {
             inputGain.setTarget(juce::Decibels::decibelsToGain(pInputGain->load(), -60.0f));

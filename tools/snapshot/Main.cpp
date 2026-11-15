@@ -38,14 +38,14 @@ void runAudio(AmbientProcessor& proc, double seconds, double sr, int block, juce
     const double period = sr * 60.0 / 145.0;
     constexpr double twoPi = 2.0 * juce::MathConstants<double>::pi;
     const bool hasMain = ! AMBIENT_IS_INSTRUMENT && proc.getBusCount(true) > 0 && proc.getBus(true, 0)->isEnabled();
-    const bool hasSc = proc.getBusCount(true) > 1 && proc.getBus(true, 1)->isEnabled();
+    const bool hasSc = proc.getBusCount(true) > AmbientProcessor::kScBus && proc.getBus(true, AmbientProcessor::kScBus)->isEnabled();
     static double kickPhase = 0.0;
     for (int b = 0; b < blocks; ++b)
     {
         buf.clear();
         juce::AudioBuffer<float> main, sc;
         if (hasMain) main = proc.getBusBuffer(buf, true, 0);
-        if (hasSc) sc = proc.getBusBuffer(buf, true, 1);
+        if (hasSc) sc = proc.getBusBuffer(buf, true, AmbientProcessor::kScBus);
         for (int i = 0; i < block; ++i)
         {
             const double t = phase / sr;
@@ -173,7 +173,8 @@ static int runSelfTest()
     auto makeLayout = [](const juce::AudioChannelSet& main, const juce::AudioChannelSet& sc)
     {
         juce::AudioProcessor::BusesLayout l;
-        l.inputBuses.add(main); l.inputBuses.add(sc);
+        if (AmbientProcessor::kMainBus >= 0) l.inputBuses.add(main);
+        l.inputBuses.add(sc);
         l.outputBuses.add(juce::AudioChannelSet::stereo());
         return l;
     };
@@ -198,7 +199,7 @@ static int runSelfTest()
         for (int b = 0; b < 200; ++b)
         {
             buf.clear();
-            auto sc = p.getBusBuffer(buf, true, 1);
+            auto sc = p.getBusBuffer(buf, true, AmbientProcessor::kScBus);
             for (int i = 0; i < block; ++i)
             {
                 phase += 2.0 * kPi * 55.0 / sr;
@@ -216,7 +217,7 @@ static int runSelfTest()
         for (int b = 0; b < 20; ++b)
         {
             buf.clear();
-            auto sc = p.getBusBuffer(buf, true, 1);
+            auto sc = p.getBusBuffer(buf, true, AmbientProcessor::kScBus);
             for (int i = 0; i < block; ++i) { phase += 2.0 * kPi * 55.0 / sr; for (int c = 0; c < scCh; ++c) sc.setSample(c, i, 0.5f * float(std::sin(phase))); }
             p.processBlock(buf, midi);
             heard = juce::jmax(heard, buf.getMagnitude(0, 0, block));
@@ -247,7 +248,7 @@ static int runSelfTest()
         for (int b = 0; b < 300; ++b)
         {
             buf.clear();
-            auto sc = p.getBusBuffer(buf, true, 1);
+            auto sc = p.getBusBuffer(buf, true, AmbientProcessor::kScBus);
            #if ! AMBIENT_IS_INSTRUMENT
             auto in = p.getBusBuffer(buf, true, 0);
            #endif
@@ -291,7 +292,7 @@ static int runSelfTest()
         for (int b = 0; b < 600; ++b)
         {
             buf.clear();
-            auto sc = p.getBusBuffer(buf, true, 1);
+            auto sc = p.getBusBuffer(buf, true, AmbientProcessor::kScBus);
             const bool kicksOn = b >= 100; // first 1 s: silence -> idle only
             for (int i = 0; i < block; ++i, ++t)
             {
@@ -335,7 +336,7 @@ static int runSelfTest()
                 for (int b = 0; b < blocks; ++b)
                 {
                     buf.clear();
-                    auto sc = p.getBusBuffer(buf, true, 1);
+                    auto sc = p.getBusBuffer(buf, true, AmbientProcessor::kScBus);
                     for (int c = 0; c < sc.getNumChannels(); ++c)
                         for (int i = 0; i < bs; ++i) sc.setSample(c, i, 0.5f * (rng.nextFloat() - 0.5f));
                     if (b == blocks / 4) t0 = juce::Time::getMillisecondCounterHiRes();
