@@ -107,4 +107,18 @@ private:
     std::vector<std::unique_ptr<RotaryKnob>> time, tone, out;
     RotaryKnob *timeK = nullptr, *divK = nullptr, *pitchK = nullptr;
 };
+
+/** FX routing (Stage 9): serial order / parallel, global loop feedback, chain gain. */
+class RoutingPanel : public juce::Component
+{
+public:
+    explicit RoutingPanel(juce::AudioProcessorValueTreeState&);
+    void resized() override;
+    void paint(juce::Graphics&) override;
+private:
+    std::unique_ptr<ParamSegment> mode;
+    juce::ComboBox order;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> orderAtt;
+    std::vector<std::unique_ptr<RotaryKnob>> knobs;
+};
 } // namespace ambient::ui

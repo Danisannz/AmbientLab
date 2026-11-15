@@ -1,4 +1,5 @@
 #include "HeaderBar.h"
+#include "../Presets.h"
 #include "../PluginProcessor.h"
 #include "../Parameters.h"
 #include <ambient/ParamIDs.h>
@@ -29,7 +30,7 @@ HeaderBar::HeaderBar(AmbientProcessor& p, juce::Image img)
     addAndMakeVisible(settingsButton);
     presetMenuButton.onClick = [this] { showPresetMenu(); };
     settingsButton.onClick   = [this] { showMainMenu(); };
-    presetMenuButton.setTooltip("Preset actions");
+    presetMenuButton.setTooltip("Factory and user presets: load, save, delete");
     settingsButton.setTooltip("Settings");
 }
 
@@ -38,6 +39,7 @@ void HeaderBar::tick(float dt)
     const auto mc = proc.midiEventCount.load(std::memory_order_relaxed);
     if (mc != lastMidiCount) { lastMidiCount = mc; midiLed.trigger(); }
     midiLed.tick(dt);
+    if (const auto pn = proc.getPresetName(); pn != shownPreset) { shownPreset = pn; repaint(presetArea); }   // host/session loads
 
     const float in = proc.inputPeak.load(std::memory_order_relaxed);
     audioLed.setLevel(juce::jlimit(0.0f, 1.0f, (juce::Decibels::gainToDecibels(in, -100.0f) + 60.0f) / 54.0f));
@@ -62,19 +64,44 @@ void HeaderBar::tick(float dt)
 
 void HeaderBar::showPresetMenu()
 {
-    juce::PopupMenu m;
-    m.addSectionHeader("Preset");
-    m.addItem(1, "Reset all parameters to default");
+    namespace pr = ambient::presets;
+    juce::PopupMenu m, fac, usr;
+    for (int i = 0; i < pr::numFactory(); ++i) fac.addItem(1000 + i, pr::factoryName(i));
+    const auto files = pr::userPresets();
+    for (int i = 0; i < files.size(); ++i) usr.addItem(2000 + i, files[i].getFileNameWithoutExtension());
+    if (files.isEmpty()) usr.addItem(1, "(no user presets yet)", false);
+    m.addSubMenu("Factory presets", fac);
+    m.addSubMenu("User presets", usr);
     m.addSeparator();
-    m.addItem(2, "Preset library - arrives in Stage 10", false, false);
+    m.addItem(10, "Save as...");
+    juce::File current;
+    for (const auto& f : files) if (f.getFileNameWithoutExtension() == proc.getPresetName()) current = f;
+    m.addItem(11, "Delete user preset \"" + proc.getPresetName() + "\"", current.existsAsFile());
+    m.addItem(12, "Open preset folder");
+    m.addSeparator();
+    m.addItem(13, "Reset all parameters to default");
     m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&presetMenuButton),
-                    [this](int r)
-                    {
-                        if (r == 1)
-                            for (auto* prm : proc.getParameters())
-                                if (auto* rp = dynamic_cast<juce::RangedAudioParameter*>(prm))
-                                    rp->setValueNotifyingHost(rp->getDefaultValue());
-                    });
+        [this, files, current](int r)
+        {
+            if (r >= 1000 && r < 2000) { ambient::presets::applyFactory(proc, r - 1000); proc.currentProgram = r - 1000; }
+            else if (r >= 2000) ambient::presets::loadUser(proc, files[r - 2000]);
+            else if (r == 10)
+            {
+                auto* w = new juce::AlertWindow("Save preset", "Preset name:", juce::MessageBoxIconType::NoIcon);
+                w->addTextEditor("name", proc.getPresetName());
+                w->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+                w->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+                w->enterModalState(true, juce::ModalCallbackFunction::create([this, w](int res)
+                {
+                    if (res == 1) ambient::presets::saveUser(proc, w->getTextEditorContents("name"));
+                    repaint();
+                }), true);
+            }
+            else if (r == 11) { ambient::presets::deleteUser(current); proc.setPresetName("Init"); }
+            else if (r == 12) ambient::presets::userDirectory().startAsProcess();
+            else if (r == 13) { ambient::presets::applyFactory(proc, 0); }
+            repaint();
+        });
 }
 
 void HeaderBar::showMainMenu()
@@ -226,7 +253,7 @@ void HeaderBar::paint(juce::Graphics& g)
     g.drawText("PRESET", pt.removeFromTop(14.0f), juce::Justification::centredLeft);
     g.setColour(text);
     g.setFont(body(15.0f, Weight::Medium));
-    g.drawText("Default", pt, juce::Justification::centredLeft);
+    g.drawText(proc.getPresetName(), pt, juce::Justification::centredLeft, true);
 
     // Status module
     auto sa = statusArea.toFloat();

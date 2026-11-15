@@ -1,5 +1,6 @@
 #include "../../tests/StereoMetrics.h"
 #include "../../plugin/ModDestinations.h"
+#include "../../plugin/Presets.h"
 // Renders the AmbientLab editor in several states to PNG, feeding it real audio
 // through processBlock so the analyzer shows live data.
 // Usage: AmbientSnapshot <outputDir> [scale]
@@ -595,6 +596,136 @@ static int runSelfTest()
         check(r5.note == 7 && r5.ratchet == 3 && std::abs(r5.locks[0] - 0.25f) < 1e-6f && std::isnan(q->getSeqStep(6).locks[0]),
               "sequencer pattern (notes, ratchets, locks) persists through the plugin state");
         check(q->apvts.getRawParameterValue("seq.on")->load() > 0.5f, "sequencer parameters persist");
+    }
+
+    // Stage 9: presets, routing, automation fuzz.
+    {
+        auto fresh = [&]()
+        {
+            auto p = std::make_unique<AmbientProcessor>();
+            p->setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                         juce::AudioChannelSet::stereo()));
+            p->setRateAndBufferSizeDetails(sr, 512);
+            p->prepareToPlay(sr, 512);
+            return p;
+        };
+        struct Stats { double rms = 0; float peak = 0; bool finite = true; double cpu = 0; };
+        auto play = [&](AmbientProcessor& p, double seconds, std::function<void(int)> perBlock = nullptr)
+        {
+            Stats st;
+            const int ch = juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels(), 2);
+            juce::AudioBuffer<float> buf(ch, 512);
+            juce::MidiBuffer on, none;
+            for (int nn : { 48, 55, 60, 64 }) on.addEvent(juce::MidiMessage::noteOn(1, nn, 0.8f), 0);
+            const int blocks = int(sr * seconds / 512);
+            double acc = 0; long cnt = 0; long t = 0;
+            const double t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int b = 0; b < blocks; ++b)
+            {
+                if (perBlock) perBlock(b);
+                buf.clear();
+               #if ! AMBIENT_IS_INSTRUMENT
+                for (int i = 0; i < 512; ++i) { double x = 0; for (double f : { 110.0, 164.8, 220.5 }) x += 2.0 * std::fmod(f * double(t + i) / sr, 1.0) - 1.0;
+                                                buf.setSample(0, i, float(0.1 * x)); buf.setSample(1, i, float(0.1 * x)); }
+               #endif
+                p.processBlock(buf, b == 0 ? on : none);
+                t += 512;
+                for (int c = 0; c < 2; ++c) for (int i = 0; i < 512; ++i)
+                {
+                    const float v = buf.getSample(c, i);
+                    if (! std::isfinite(v)) st.finite = false;
+                    st.peak = std::max(st.peak, std::abs(v)); acc += double(v) * v; ++cnt;
+                }
+            }
+            st.cpu = 100.0 * (juce::Time::getMillisecondCounterHiRes() - t0) / (seconds * 1000.0);
+            st.rms = std::sqrt(acc / double(juce::jmax(1L, cnt)));
+            return st;
+        };
+
+        // factory presets
+        bool presetsOk = true;
+        std::printf("       factory presets (%d): rms / peak / cpu\n", ambient::presets::numFactory());
+        for (int i = 0; i < ambient::presets::numFactory(); ++i)
+        {
+            auto p = fresh();
+            p->setCurrentProgram(i);   // message thread here -> applied immediately
+            setParam(*p, "seq.clock", 1.0f);   // sequenced presets: internal clock (no host transport here)
+            const auto st = play(*p, 3.0);
+            std::printf("         %-20s %6.3f  %5.3f  %5.2f %%  %s\n", ambient::presets::factoryName(i).toRawUTF8(), st.rms, st.peak, st.cpu, p->getPresetName().toRawUTF8());
+            presetsOk = presetsOk && st.finite && st.rms > 0.003 && st.peak <= 1.0f && p->getPresetName() == ambient::presets::factoryName(i);
+        }
+        check(presetsOk, "every factory preset loads, plays, stays finite and below full scale");
+
+        // user preset round trip
+        {
+            auto p = fresh();
+            p->setCurrentProgram(3);
+            setParam(*p, "rv.decay", 11.0f);
+            auto st5 = p->getSeqStep(4); st5.note = -5; p->setSeqStep(4, st5);
+            const bool saved = ambient::presets::saveUser(*p, "zz SelfTest Preset");
+            auto q = fresh();
+            const auto file = ambient::presets::userDirectory().getChildFile(juce::String("zz SelfTest Preset") + ambient::presets::kExtension);
+            const bool loaded = ambient::presets::loadUser(*q, file);
+            const float decay = q->apvts.getRawParameterValue("rv.decay")->load();
+            check(saved && loaded && std::abs(decay - 11.0f) < 0.05f && q->getSeqStep(4).note == -5 && q->getPresetName() == "zz SelfTest Preset",
+                  "user preset save -> load restores parameters, sequencer pattern and name");
+            check(ambient::presets::deleteUser(file) && ! file.existsAsFile(), "user preset delete");
+        }
+
+        // routing: one active module -> parallel == serial; all orders + max loop feedback bounded
+        {
+            auto render = [&](float mode, float order, float fb, std::vector<float>& out)
+            {
+                auto p = fresh();
+                setParam(*p, "rv.on", 1.0f); setParam(*p, "rv.mix", 0.5f);
+                setParam(*p, "route.mode", mode); setParam(*p, "route.order", order); setParam(*p, "route.feedback", fb);
+                out.clear();
+                const int ch = juce::jmax(p->getTotalNumInputChannels(), p->getTotalNumOutputChannels(), 2);
+                juce::AudioBuffer<float> buf(ch, 512); juce::MidiBuffer on, none; on.addEvent(juce::MidiMessage::noteOn(1, 57, 0.8f), 0);
+                long t = 0;
+                for (int b = 0; b < int(sr * 2.0 / 512); ++b)
+                {
+                    buf.clear();
+                   #if ! AMBIENT_IS_INSTRUMENT
+                    for (int i = 0; i < 512; ++i) { const float x = 0.3f * float(std::sin(2 * kPi * 220.0 * double(t + i) / sr)); buf.setSample(0, i, x); buf.setSample(1, i, x); }
+                   #endif
+                    p->processBlock(buf, b == 0 ? on : none); t += 512;
+                    for (int i = 0; i < 512; ++i) out.push_back(buf.getSample(0, i));
+                }
+            };
+            std::vector<float> a, b;
+            render(0.0f, 0.0f, 0.0f, a); render(1.0f, 0.0f, 0.0f, b);
+            float diff = 0; for (size_t i = 0; i < a.size(); ++i) diff = std::max(diff, std::abs(a[i] - b[i]));
+            std::printf("       parallel vs serial with one active module: max diff %.2e\n", double(diff));
+            check(diff < 1.0e-4f, "parallel routing with one active module equals serial");
+            bool bounded = true;
+            for (int o = 0; o < 6; ++o)
+            {
+                render(0.0f, float(o), 0.9f, a);
+                double late = 0; for (size_t i = a.size() / 2; i < a.size(); ++i) { if (! std::isfinite(a[i])) bounded = false; late += double(a[i]) * a[i]; }
+                late = std::sqrt(late / double(a.size() / 2));
+                bounded = bounded && late < 0.7;
+            }
+            render(1.0f, 0.0f, 0.9f, a);
+            for (float v : a) bounded = bounded && std::isfinite(v);
+            check(bounded, "all 6 serial orders and parallel stay bounded at 90 % loop feedback");
+        }
+
+        // automation fuzz: every parameter randomised every 4 blocks while playing
+        {
+            auto p = fresh();
+            juce::Random rng(77);
+            auto params = p->getParameters();
+            const auto st = play(*p, 6.0, [&](int b)
+            {
+                if (b % 4 != 0) return;
+                for (auto* prm : params)
+                    if (rng.nextFloat() < 0.15f) prm->setValueNotifyingHost(rng.nextFloat());
+                setParam(*p, "global.masterGain", -12.0f);
+            });
+            std::printf("       automation fuzz (%d params, 6 s): peak %.3f, cpu %.2f %%\n", params.size(), st.peak, st.cpu);
+            check(st.finite && st.peak <= 1.0f, "random automation of all parameters while playing stays finite");
+        }
     }
 
     // Stereo: whole plugin output with each reverb algorithm, before (wide reverb, no safety)

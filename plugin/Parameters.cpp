@@ -308,6 +308,17 @@ Layout createParameterLayout()
                 layout.add(std::make_unique<juce::AudioParameterChoice>(P8("seq.lock" + juce::String(l)), "Seq Lock " + juce::String(l) + " Target", lockDst, 0));
         }
 
+        // ---- Routing (Stage 9) ----
+        {
+            auto P9 = [&](const juce::String& i) { return PID { i, 9 }; };
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P9("route.mode"), "FX Routing", juce::StringArray { "Serial", "Parallel" }, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P9("route.order"), "FX Order", juce::StringArray {
+                "Granular > Delay > Reverb", "Granular > Reverb > Delay", "Delay > Granular > Reverb",
+                "Delay > Reverb > Granular", "Reverb > Granular > Delay", "Reverb > Delay > Granular" }, 0));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P9("route.feedback"), "FX Loop Feedback", juce::NormalisableRange<float> { 0.0f, 0.9f }, 0.0f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P9("route.fxGain"), "FX Chain Gain", juce::NormalisableRange<float> { -12.0f, 12.0f, 0.01f }, 0.0f, dbAttr("dB")));
+        }
+
         for (int m = 1; m <= ambient::dsp::ModMatrix::kSlots; ++m)
         {
             const juce::String pre = "mm." + juce::String(m) + ".", nm = "Mod " + juce::String(m) + " ";

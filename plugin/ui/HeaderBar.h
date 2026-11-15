@@ -46,7 +46,7 @@ private:
     Backdrop backdrop;
     GraphicsQuality quality = GraphicsQuality::High;
 
-    juce::TextButton presetMenuButton { "Reset" };
+    juce::TextButton presetMenuButton { "Presets" };
     GearButton settingsButton;
     StatusLed midiLed { "MIDI" }, audioLed { "Sidechain" };
     Mascot mascot;
@@ -54,7 +54,7 @@ private:
     LevelMeter meter;
 
     juce::Rectangle<int> logoArea, wordArea, presetArea, statusArea, rateCell, cpuCell;
-    juce::String cpuText { "-" }, srText { "-" };
+    juce::String cpuText { "-" }, srText { "-" }, shownPreset;
     uint32_t lastMidiCount = 0;
     float infoTimer = 1.0f;
 };

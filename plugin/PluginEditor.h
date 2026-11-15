@@ -83,6 +83,7 @@ private:
     std::unique_ptr<ambient::ui::ReverbPanel> reverbPanel;
     std::unique_ptr<ambient::ui::StereoPanel> stereoPanel;
     std::unique_ptr<ambient::ui::DelayPanel> delayPanel;
+    std::unique_ptr<ambient::ui::RoutingPanel> routingPanel;
     std::array<std::unique_ptr<ambient::ui::LfoPanel>, 4> lfoPanels;
     std::unique_ptr<ambient::ui::ModMatrixPanel> matrixPanel;
     std::unique_ptr<ambient::ui::SequencerPanel> sequencerPanel;

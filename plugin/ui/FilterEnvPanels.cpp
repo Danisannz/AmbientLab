@@ -391,4 +391,41 @@ void DelayPanel::paint(juce::Graphics& gr)
     label(tone, "TONE / MOTION");
     label(out, "PITCH / OUTPUT");
 }
+
+RoutingPanel::RoutingPanel(juce::AudioProcessorValueTreeState& s)
+{
+    if (auto* p = s.getParameter("route.mode"))
+    {
+        mode = std::make_unique<ParamSegment>(*p, juce::StringArray { "SERIAL", "PARALLEL" });
+        addAndMakeVisible(*mode);
+    }
+    order.addItemList({ "Granular > Delay > Reverb", "Granular > Reverb > Delay", "Delay > Granular > Reverb",
+                        "Delay > Reverb > Granular", "Reverb > Granular > Delay", "Reverb > Delay > Granular" }, 1);
+    order.setTooltip("Serial order of the three processors (ignored in parallel mode)");
+    addAndMakeVisible(order);
+    orderAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(s, "route.order", order);
+    knobs.push_back(knob(*this, s, "route.feedback", "Loop feedback"));
+    knobs.push_back(knob(*this, s, "route.fxGain", "Chain gain", true));
+}
+
+void RoutingPanel::resized()
+{
+    auto r = getLocalBounds();
+    auto top = r.removeFromTop(26);
+    if (mode) mode->setBounds(top.removeFromLeft(juce::jmin(240, top.getWidth() / 2)));
+    top.removeFromLeft(12);
+    order.setBounds(top.removeFromLeft(juce::jmin(280, top.getWidth())));
+    r.removeFromTop(40);
+    auto row = r.withHeight(juce::jmin(r.getHeight(), RotaryKnob::heightFor(56, true)));
+    for (auto& k : knobs) k->setBounds(row.removeFromLeft(96));
+}
+
+void RoutingPanel::paint(juce::Graphics& g)
+{
+    g.setFont(caption(10.5f));
+    g.setColour(textFaint);
+    auto r = getLocalBounds().withTrimmedTop(32).removeFromTop(28);
+    g.drawText("Source -> FX chain (serial order or parallel sum) -> frequency sidechain -> stereo safety -> master.  "
+               "Loop feedback returns the chain output to its input (high-passed, soft-limited).", r, juce::Justification::centredLeft, true);
+}
 } // namespace ambient::ui

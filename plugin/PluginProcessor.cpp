@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "Presets.h"
 #include "PluginEditor.h"
 #include "Parameters.h"
 #include "StateMigration.h"
@@ -71,6 +72,7 @@ AmbientProcessor::AmbientProcessor()
     for (auto f : { "on", "clock", "bpm", "length", "division", "swing", "direction", "root", "scale", "octave", "transpose", "gate", "patternStart" })
         seqRaw.push_back(rawId("seq." + juce::String(f)));
     for (int l = 0; l < 4; ++l) seqLockDst[size_t(l)] = apvts.getRawParameterValue("seq.lock" + juce::String(l + 1));
+    for (auto f : { "mode", "order", "feedback", "fxGain" }) routeRaw.push_back(rawId("route." + juce::String(f)));
     seqModel.loadPresetPattern(0);   // default pattern (sequencer itself is off by default)
     publishPattern();
     scParams.enable = raw(ids::sc::enable);       scParams.inputGain = raw(ids::sc::inputGain);
@@ -224,6 +226,10 @@ void AmbientProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     delay.prepare(sampleRate, samplesPerBlock);    // 8 s stereo buffer, allocated here only
     for (auto& l : lfos) l.prepare(sampleRate);
     sequencer.prepare(sampleRate);
+    fxGainSm.prepare(sampleRate, 20.0f); fxGainSm.reset(juce::Decibels::decibelsToGain(routeRaw[3].load()));
+    fbSm.prepare(sampleRate, 50.0f);     fbSm.reset(routeRaw[2].load());
+    for (auto* a : { &fbRing, &parSrc, &parWork, &parAcc }) for (auto& ch : *a) ch.fill(0.0f);
+    fbHp = {}; fbDc = {}; fbEnv = 0.0f;
     seqPattern.update();
     for (int i = 0; i < ambient::dsp::Sequencer::kMaxSteps; ++i) sequencer.setStep(i, seqPattern.front()[size_t(i)]);
     seqNotesOn = 0;
@@ -287,6 +293,84 @@ void AmbientProcessor::handleMidi(const juce::MidiMessage& m)
     else if (m.isChannelPressure())                    midiAftertouch = float(m.getChannelPressureValue()) / 127.0f;
     else if (m.isAftertouch())                         midiAftertouch = float(m.getAfterTouchValue()) / 127.0f;
     else if (m.isPitchWheel())                         midiBend = juce::jlimit(-1.0f, 1.0f, float(m.getPitchWheelValue() - 8192) / 8191.0f);
+}
+
+void AmbientProcessor::processModule(int module, float* L, float* R, int n) noexcept
+{
+    switch (module)
+    {
+        case 0: granular.process(L, R, n); break;
+        case 1: delay.process(L, R, n); break;
+        default: reverb.process(L, R, n); break;
+    }
+}
+
+/** FX chain (n <= 32): global feedback in -> serial (6 orders) or parallel -> chain gain.
+    Parallel: every module gets the same source and contributes (output - source), so each
+    module's own mix law is respected and a bypassed module adds nothing. */
+void AmbientProcessor::processChain(float* L, float* R, int n) noexcept
+{
+    static constexpr int kOrders[6][3] = { { 0, 1, 2 }, { 0, 2, 1 }, { 1, 0, 2 }, { 1, 2, 0 }, { 2, 0, 1 }, { 2, 1, 0 } };
+    const bool parallel = routeRaw[0].load() > 0.5f;
+    const auto& order = kOrders[juce::jlimit(0, 5, juce::roundToInt(routeRaw[1].load()))];
+    fbSm.setTarget(juce::jlimit(0.0f, 0.9f, routeRaw[2].load()));
+    fxGainSm.setTarget(juce::Decibels::decibelsToGain(routeRaw[3].load()));
+
+    // safe global feedback: previous chain output (one control block ago), high-passed at ~120 Hz,
+    // DC-blocked and soft-limited, added to the chain input
+    const float sr = float(getSampleRate());
+    const float hpC = 1.0f - std::exp(-2.0f * juce::MathConstants<float>::pi * 120.0f / sr);
+    const float att = 1.0f - std::exp(-1.0f / (0.005f * sr)), rel = 1.0f - std::exp(-1.0f / (0.25f * sr));
+    for (int i = 0; i < n; ++i)
+    {
+        const float fb = fbSm.next();
+        const float a = fbRing[0][size_t(i)], b = fbRing[1][size_t(i)];
+        const float lvl = std::max(std::abs(a), std::abs(b));
+        fbEnv += (lvl > fbEnv ? att : rel) * (lvl - fbEnv);
+        if (fb > 0.0f)
+        {
+            const float safe = fbEnv > 0.25f ? 0.25f / fbEnv : 1.0f;     // loop limiter: return <= ~-12 dBFS
+            L[i] += fb * safe * std::tanh(a);
+            R[i] += fb * safe * std::tanh(b);
+        }
+    }
+
+    if (! parallel)
+        for (int m : order) processModule(m, L, R, n);
+    else
+    {
+        std::copy(L, L + n, parSrc[0].begin()); std::copy(R, R + n, parSrc[1].begin());
+        std::copy(L, L + n, parAcc[0].begin()); std::copy(R, R + n, parAcc[1].begin());
+        for (int m = 0; m < 3; ++m)
+        {
+            std::copy(parSrc[0].begin(), parSrc[0].begin() + n, parWork[0].begin());
+            std::copy(parSrc[1].begin(), parSrc[1].begin() + n, parWork[1].begin());
+            processModule(m, parWork[0].data(), parWork[1].data(), n);
+            for (int i = 0; i < n; ++i)
+            {
+                parAcc[0][size_t(i)] += parWork[0][size_t(i)] - parSrc[0][size_t(i)];
+                parAcc[1][size_t(i)] += parWork[1][size_t(i)] - parSrc[1][size_t(i)];
+            }
+        }
+        std::copy(parAcc[0].begin(), parAcc[0].begin() + n, L); std::copy(parAcc[1].begin(), parAcc[1].begin() + n, R);
+    }
+
+    for (int i = 0; i < n; ++i)
+    {
+        const float g = fxGainSm.next();
+        L[i] *= g; R[i] *= g;
+        // feedback tap: HP (one-pole) + DC block
+        for (int c = 0; c < 2; ++c)
+        {
+            const float x = c == 0 ? L[i] : R[i];
+            fbHp[size_t(c)] += hpC * (x - fbHp[size_t(c)]);
+            float y = x - fbHp[size_t(c)];
+            fbDc[size_t(c)] += 0.0005f * (y - fbDc[size_t(c)]);
+            y -= fbDc[size_t(c)];
+            fbRing[size_t(c)][size_t(i)] = std::isfinite(y) ? y : 0.0f;
+        }
+    }
+    for (auto& v : fbHp) if (std::abs(v) < 1e-20f) v = 0.0f;
 }
 
 void AmbientProcessor::publishPattern() noexcept
@@ -576,9 +660,8 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
             juce::FloatVectorOperations::add(intR + start, sR + start, len);
         }
 
-        readGranularParams();  granular.process(intL + start, intR + start, len);
-        readDelayParams();     delay.process(intL + start, intR + start, len);
-        readReverbParams();    reverb.process(intL + start, intR + start, len);
+        readGranularParams(); readDelayParams(); readReverbParams();
+        processChain(intL + start, intR + start, len);
         readSidechainParams();
         ducker.process(intL + start, intR + start, hasRef ? refL + start : nullptr, hasRef ? refR + start : nullptr, len);
         readStereoParams();    stereoSafety.process(intL + start, intR + start, len);
@@ -643,6 +726,18 @@ void AmbientProcessor::setStateInformation(const void* data, int size)
     migrateState(tree); // newer-version states still load known params
     patternFromTree(tree.getChildWithName("SEQPATTERN"));
     apvts.replaceState(tree);
+}
+
+int AmbientProcessor::getNumPrograms() { return ambient::presets::numFactory(); }
+int AmbientProcessor::getCurrentProgram() { return currentProgram; }
+const juce::String AmbientProcessor::getProgramName(int i) { return ambient::presets::factoryName(i); }
+void AmbientProcessor::setCurrentProgram(int i)
+{
+    if (! juce::isPositiveAndBelow(i, getNumPrograms())) return;
+    currentProgram = i;
+    auto apply = [this, i] { ambient::presets::applyFactory(*this, i); };
+    if (juce::MessageManager::existsAndIsCurrentThread()) apply();
+    else juce::MessageManager::callAsync(apply);   // never apply a preset on the audio thread
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AmbientProcessor(); }

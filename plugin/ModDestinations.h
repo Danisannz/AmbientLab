@@ -6,7 +6,7 @@
 
 namespace ambient::moddest
 {
-inline constexpr std::array<std::string_view, 90> kDestinations {
+inline constexpr std::array<std::string_view, 92> kDestinations {
     "global.masterGain",
     "global.inputGain",
     "sc.inputGain",
@@ -96,9 +96,11 @@ inline constexpr std::array<std::string_view, 90> kDestinations {
     "seq.root",
     "seq.transpose",
     "seq.swing",
-    "seq.gate"
+    "seq.gate",
+    "route.feedback",
+    "route.fxGain"
 };
-inline constexpr std::array<const char*, 90> kDestinationNames {
+inline constexpr std::array<const char*, 92> kDestinationNames {
     "Master Gain",
     "Input Gain",
     "SC Input Gain",
@@ -188,7 +190,9 @@ inline constexpr std::array<const char*, 90> kDestinationNames {
     "Seq Root",
     "Seq Transpose",
     "Seq Swing",
-    "Seq Gate Length"
+    "Seq Gate Length",
+    "FX Loop Feedback",
+    "FX Chain Gain"
 };
 inline constexpr int kNumDestinations = int(kDestinations.size());   // + index 0 = "None"
 } // namespace ambient::moddest

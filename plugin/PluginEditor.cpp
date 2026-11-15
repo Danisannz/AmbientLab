@@ -200,7 +200,9 @@ void AmbientEditor::buildPages()
     dly.addAndMakeVisible(delayPanel->getPowerButton());
     dly.setHeaderLedVisible(false);
     auto& rout = process.add("Routing", Glyph::Stereo, 0, 0);
-    rout.setPlaceholder("Serial / parallel / flexible routing with safe feedback", 9);
+    routingPanel = std::make_unique<RoutingPanel>(proc.apvts);
+    rout.addAndMakeVisible(*routingPanel);
+    rout.setHeaderLedVisible(false);
     auto& st = process.add("Stereo / output", Glyph::Stereo, 0, 0);
     stereoPanel = std::make_unique<StereoPanel>(proc);
     st.addAndMakeVisible(*stereoPanel);
@@ -215,7 +217,7 @@ void AmbientEditor::buildPages()
     };
     processSel.setSelected(juce::jlimit(0, 5, int(settings.get("processModule", 0))), false);
     processSel.onChange(processSel.getSelected());
-    process.layoutContents = [this, &process, &sc, &gran, &rev, &st, &dly]
+    process.layoutContents = [this, &process, &sc, &gran, &rev, &st, &dly, &rout]
     {
         auto r = process.getLocalBounds();
         processSel.setBounds(r.removeFromTop(30).withWidth(juce::jmin(r.getWidth(), 672)));
@@ -231,6 +233,7 @@ void AmbientEditor::buildPages()
         stereoPanel->getPowerButton().setBounds(st.getHeaderControlBounds());
         delayPanel->setBounds(dly.getContentBounds().withTrimmedTop(4));
         delayPanel->getPowerButton().setBounds(dly.getHeaderControlBounds());
+        routingPanel->setBounds(rout.getContentBounds().reduced(4));
     };
 
     // ---- MODULATION ------------------------------------------------------------
