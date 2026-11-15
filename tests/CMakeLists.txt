@@ -2,6 +2,7 @@
 add_executable(ambient_tests
     test_core.cpp
     test_viz_core.cpp
+    test_sidechain.cpp
 )
 target_link_libraries(ambient_tests PRIVATE ambient_core Catch2::Catch2WithMain)
 find_package(Threads REQUIRED)
