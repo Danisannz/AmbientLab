@@ -1,5 +1,7 @@
 #include "Components.h"
 #include "Mascot.h"
+#include "ModAssign.h"
+#include "../ModDestinations.h"
 
 namespace ambient::ui
 {
@@ -8,10 +10,11 @@ using namespace theme;
 // ============================================================================
 // RotaryKnob
 // ============================================================================
-RotaryKnob::RotaryKnob(juce::AudioProcessorValueTreeState& apvts, const juce::String& paramID,
+RotaryKnob::RotaryKnob(juce::AudioProcessorValueTreeState& apvts, const juce::String& pid,
                        const juce::String& displayName, bool bipolar)
-    : name(displayName)
+    : name(displayName), state(apvts), paramID(pid)
 {
+    slider.owner = this;
     slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     slider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     slider.setRotaryParameters(juce::degreesToRadians(-135.0f), juce::degreesToRadians(135.0f), true);
@@ -21,15 +24,69 @@ RotaryKnob::RotaryKnob(juce::AudioProcessorValueTreeState& apvts, const juce::St
     addAndMakeVisible(slider);
 
     attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, paramID, slider);
+    destination = modassign::destinationOf(paramID);
+    macro = modassign::macroIndexOf(paramID);
     if (auto* p = apvts.getParameter(paramID))
     {
         slider.setDoubleClickReturnValue(true, p->convertFrom0to1(p->getDefaultValue()));
-        slider.setTooltip(p->getName(64) + "  -  Shift-drag: fine  -  Double-click: reset");
+        slider.setTooltip(p->getName(64) + "  -  Shift-drag: fine  -  Double-click: reset"
+                          + (destination > 0 || macro > 0 ? "  -  Right-click: modulation" : ""));
     }
+    if (destination > 0 || macro > 0)
+    {
+        refreshModulation();
+        startTimerHz(5);   // routing can change from the matrix, presets or the host
+    }
+}
+
+void RotaryKnob::refreshModulation()
+{
+    using namespace ambient;
+    modSignature = modassign::signature(state, destination, macro > 0 ? modsrc::Macro1 + macro - 1 : 0);
+    if (destination > 0) modassign::rangeFor(state, destination, modLo, modHi, modAny);
+    if (macro > 0)
+    {
+        const auto list = modassign::forSource(state, modsrc::Macro1 + macro - 1);
+        juce::StringArray names;
+        for (const auto& a : list) names.add(moddest::kDestinationNames[size_t(a.destination - 1)]);
+        macroSummary = list.empty() ? juce::String("unassigned - right-click")
+                                    : (list.size() == 1 ? names[0] : names[0] + " +" + juce::String(int(list.size()) - 1));
+        slider.setTooltip("Macro " + juce::String(macro) + (list.empty() ? " - not assigned" : " controls: " + names.joinIntoString(", "))
+                          + "  -  Right-click: assign / edit");
+    }
+}
+
+void RotaryKnob::timerCallback()
+{
+    const int sig = modassign::signature(state, destination, macro > 0 ? ambient::modsrc::Macro1 + macro - 1 : 0);
+    if (sig != modSignature) { refreshModulation(); repaint(); }
+}
+
+void RotaryKnob::paintOverChildren(juce::Graphics& g)
+{
+    if (! modAny || destination <= 0) return;
+    // modulation range ring just outside the knob: current value + combined range of all sources
+    auto b = slider.getBounds().toFloat();
+    const float d = juce::jmin(b.getWidth(), b.getHeight());
+    auto c = b.withSizeKeepingCentre(d, d).reduced(-1.0f);
+    const auto rp = slider.getRotaryParameters();
+    const float v = float(slider.valueToProportionOfLength(slider.getValue()));
+    const float a0 = juce::jlimit(0.0f, 1.0f, v + modLo), a1 = juce::jlimit(0.0f, 1.0f, v + modHi);
+    auto ang = [&](float t) { return rp.startAngleRadians + t * (rp.endAngleRadians - rp.startAngleRadians); };
+    juce::Path ring;
+    ring.addCentredArc(c.getCentreX(), c.getCentreY(), c.getWidth() * 0.5f, c.getHeight() * 0.5f, 0.0f, ang(a0), ang(a1), true);
+    g.setColour(theme::lime.withAlpha(0.85f));
+    g.strokePath(ring, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.fillEllipse(juce::Rectangle<float>(4.0f, 4.0f).withCentre(c.getTopRight().translated(-2.0f, 2.0f)));   // "modulated" dot
 }
 
 void RotaryKnob::FineSlider::mouseDown(const juce::MouseEvent& e)
 {
+    if (e.mods.isPopupMenu() && owner != nullptr && (owner->destination > 0 || owner->macro > 0))
+    {
+        modassign::showMenu(owner->state, owner->paramID, *this);
+        return;
+    }
     setMouseDragSensitivity(e.mods.isShiftDown() ? 1200 : 220);
     Slider::mouseDown(e);
 }
@@ -73,7 +130,8 @@ void RotaryKnob::paint(juce::Graphics& g)
     }
     g.setFont(f);
     g.setColour(hot ? juce::Colours::white : text.withAlpha(0.85f));
-    g.drawFittedText(val, vr, juce::Justification::centred, 1, 0.85f);
+    g.drawFittedText(macro > 0 && ! hot ? val + "  " + juce::String(juce::CharPointer_UTF8("\xc2\xb7")) + "  " + macroSummary : val,
+                     vr.expanded(macro > 0 ? 40 : 0, 0), juce::Justification::centred, 1, 0.8f);
 }
 
 // ============================================================================
@@ -443,9 +501,9 @@ void TabBar::paint(juce::Graphics& g)
 
     // small brand mark: the mascot as a quiet monochrome icon
     {
-        Mascot::State st; st.mono = true;
-        auto icon = juce::Rectangle<float>(18.0f, 22.0f).withCentre({ float(r.getRight()) - 22.0f, float(r.getCentreY()) });
-        Mascot::draw(g, icon, st);
+        MascotPose st; st.glow = 0.3f; st.orb = 0.5f;
+        auto icon = juce::Rectangle<float>(18.0f, 26.0f).withCentre({ float(r.getRight()) - 22.0f, float(r.getCentreY()) });
+        MascotArt::draw(g, icon, st);
     }
 
     const int w = tabWidth();

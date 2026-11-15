@@ -319,12 +319,33 @@ Layout createParameterLayout()
             layout.add(std::make_unique<juce::AudioParameterFloat>(P9("route.fxGain"), "FX Chain Gain", juce::NormalisableRange<float> { -12.0f, 12.0f, 0.01f }, 0.0f, dbAttr("dB")));
         }
 
+        // Default macro assignments live in slots 25-32 (visible and editable in the matrix;
+        // slots 1-24 stay free). Targets are audible with the default patch.
+        struct MacroDefault { const char* dest; float amount; };
+       #if AMBIENT_IS_INSTRUMENT
+        static constexpr MacroDefault macroDefaults[8] = {
+            { "flt.cutoff", 0.5f }, { "flt.reso", 0.6f }, { "osc.a.detune", 0.5f }, { "osc.sat.drive", 0.5f },
+            { "osc.drift", 0.75f }, { "env.amp.r", 0.2f }, { "osc.sub.level", 0.6f }, { "out.width", -0.4f } };
+       #else
+        static constexpr MacroDefault macroDefaults[8] = {
+            { "global.inputGain", 0.15f }, { "out.width", 0.3f }, { "out.bassMonoHz", 0.5f }, { "route.fxGain", 0.3f },
+            { "gr.mix", 0.6f }, { "dl.mix", 0.5f }, { "rv.mix", 0.6f }, { "rv.decay", 0.4f } };
+       #endif
         for (int m = 1; m <= ambient::dsp::ModMatrix::kSlots; ++m)
         {
             const juce::String pre = "mm." + juce::String(m) + ".", nm = "Mod " + juce::String(m) + " ";
-            layout.add(std::make_unique<juce::AudioParameterChoice>(P7(pre + "src"), nm + "Source", srcNames, 0));
-            layout.add(std::make_unique<juce::AudioParameterChoice>(P7(pre + "dst"), nm + "Destination", dstNames, 0));
-            layout.add(std::make_unique<juce::AudioParameterFloat>(P7(pre + "amt"), nm + "Amount", juce::NormalisableRange<float> { -1.0f, 1.0f }, 0.0f, bip));
+            int src = 0, dst = 0; float amt = 0.0f;
+            if (m >= 25)
+            {
+                const auto& d = macroDefaults[m - 25];
+                src = ambient::modsrc::Macro1 + (m - 25);
+                dst = ambient::moddest::indexOf(d.dest);
+                amt = d.amount;
+                jassert(dst > 0);
+            }
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P7(pre + "src"), nm + "Source", srcNames, src));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P7(pre + "dst"), nm + "Destination", dstNames, dst));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P7(pre + "amt"), nm + "Amount", juce::NormalisableRange<float> { -1.0f, 1.0f }, amt, bip));
         }
     }
 

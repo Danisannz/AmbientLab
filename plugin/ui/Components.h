@@ -11,7 +11,7 @@ namespace ambient::ui
 // ============================================================================
 /** Parameter knob: name above, metallic rotary, live value readout below.
     Drag = adjust, Shift-drag = fine, double-click = reset to default. */
-class RotaryKnob : public juce::Component
+class RotaryKnob : public juce::Component, private juce::Timer
 {
 public:
     RotaryKnob(juce::AudioProcessorValueTreeState&, const juce::String& paramID,
@@ -24,11 +24,16 @@ public:
     static int heightFor(int diameter, bool compact) { return diameter + (compact ? 34 : 38); }
 
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
+    ~RotaryKnob() override { stopTimer(); }
 
 private:
+    void timerCallback() override;
+    void refreshModulation();
     struct FineSlider : juce::Slider
     {
+        RotaryKnob* owner = nullptr;
         void mouseDown(const juce::MouseEvent& e) override;
         void mouseDrag(const juce::MouseEvent& e) override;
         void mouseEnter(const juce::MouseEvent& e) override { Slider::mouseEnter(e); if (auto* p = getParentComponent()) p->repaint(); }
@@ -39,6 +44,13 @@ private:
     juce::String name;
     bool compact = false;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+    // modulation (right-click assignment, range ring, macro summary)
+    juce::AudioProcessorValueTreeState& state;
+    juce::String paramID;
+    int destination = 0, macro = 0, modSignature = 0;
+    float modLo = 0.0f, modHi = 0.0f;
+    bool modAny = false;
+    juce::String macroSummary;
 };
 
 // ============================================================================

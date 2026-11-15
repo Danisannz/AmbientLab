@@ -1,6 +1,7 @@
 #include "../../tests/StereoMetrics.h"
 #include "../../plugin/ModDestinations.h"
 #include "../../plugin/Presets.h"
+#include "../../plugin/ui/ModAssign.h"
 // Renders the AmbientLab editor in several states to PNG, feeding it real audio
 // through processBlock so the analyzer shows live data.
 // Usage: AmbientSnapshot <outputDir> [scale]
@@ -598,6 +599,103 @@ static int runSelfTest()
         check(q->apvts.getRawParameterValue("seq.on")->load() > 0.5f, "sequencer parameters persist");
     }
 
+    // Macros + direct (right-click) modulation assignment: every macro moves its real DSP
+    // parameter and changes the audio; multiple destinations; negative amounts; persistence.
+    {
+        namespace ma = ambient::ui::modassign;
+        auto fresh = [&]()
+        {
+            auto p = std::make_unique<AmbientProcessor>();
+            p->setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                         juce::AudioChannelSet::stereo()));
+            p->setRateAndBufferSizeDetails(sr, 512);
+            p->prepareToPlay(sr, 512);
+           #if ! AMBIENT_IS_INSTRUMENT
+            for (auto id : { "gr.on", "dl.on", "rv.on" }) setParam(*p, id, 1.0f);   // FX macros 5-8 act on the effects
+           #endif
+            return p;
+        };
+        auto renderWith = [&](AmbientProcessor& p, std::vector<float>& out)
+        {
+            const int ch = juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels(), 2);
+            juce::AudioBuffer<float> buf(ch, 512);
+            juce::MidiBuffer on, off, none;
+            for (int nn : { 48, 55, 60 }) { on.addEvent(juce::MidiMessage::noteOn(1, nn, 0.8f), 0); off.addEvent(juce::MidiMessage::noteOff(1, nn), 0); }
+            out.clear(); long t = 0;
+            const int blocks = int(sr * 1.5 / 512), offBlock = int(sr * 1.0 / 512);
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+               #if ! AMBIENT_IS_INSTRUMENT
+                for (int i = 0; i < 512; ++i)   // stereo source (width / bass-mono macros need a side signal)
+                {
+                    const double tt = double(t + i) / sr;
+                    buf.setSample(0, i, float(0.25 * std::sin(2 * kPi * 110.0 * tt) + 0.1 * std::sin(2 * kPi * 660.0 * tt)));
+                    buf.setSample(1, i, float(0.25 * std::sin(2 * kPi * 110.0 * tt + 1.2) + 0.1 * std::sin(2 * kPi * 440.0 * tt)));
+                }
+               #endif
+                p.processBlock(buf, b == 0 ? on : (b == offBlock ? off : none));
+                t += 512;
+                for (int c = 0; c < 2; ++c) for (int i = 0; i < 512; ++i) out.push_back(buf.getSample(c, i));
+            }
+        };
+        bool allMove = true, allAudible = true;
+        for (int m = 1; m <= 8; ++m)
+        {
+            const auto list = [&] { auto p = fresh(); return ma::forSource(p->apvts, ambient::modsrc::Macro1 + m - 1); }();
+            if (list.empty()) { allMove = false; std::printf("       macro %d: NOT ASSIGNED\n", m); continue; }
+            const auto destId = juce::String(std::string(ambient::moddest::kDestinations[size_t(list[0].destination - 1)]));
+            auto a = fresh(), b = fresh();
+            setParam(*b, "macro." + juce::String(m), 1.0f);     // host automation path (setValueNotifyingHost)
+            std::vector<float> oa, ob;
+            renderWith(*a, oa); renderWith(*b, ob);
+            const float va = a->getModulatedValue(destId), vb = b->getModulatedValue(destId);
+            double diff = 0, ref = 0; for (size_t i = 0; i < oa.size(); ++i) { diff += std::pow(double(oa[i] - ob[i]), 2); ref += double(oa[i]) * oa[i]; }
+            const double diffDb = 10.0 * std::log10((diff + 1e-20) / (ref + 1e-20));
+            std::printf("       macro %d -> %-22s %8.3f -> %8.3f   output change %6.1f dB\n", m, destId.toRawUTF8(), va, vb, diffDb);
+            allMove = allMove && std::abs(vb - va) > 1e-4f;
+            allAudible = allAudible && diffDb > -60.0;
+        }
+        check(allMove, "every macro (1-8) moves its assigned DSP parameter (via host automation of the macro)");
+        check(allAudible, "every macro produces an audible output change (> -60 dB difference)");
+
+        // multiple destinations + negative amount, through the right-click assignment helper
+        {
+            auto p = fresh();
+            const int src = ambient::modsrc::Macro2;
+            const int d1 = ma::destinationOf("flt.cutoff"), d2 = ma::destinationOf("rv.mix");
+            const int s1 = ma::add(p->apvts, src, d1, -0.5f), s2 = ma::add(p->apvts, src, d2, 0.4f);
+            const auto list = ma::forSource(p->apvts, src);
+            check(s1 > 0 && s2 > 0 && list.size() >= 3, "a macro accepts several destinations (assigned through the right-click helper)");
+            const float cut0 = [&] { std::vector<float> o; renderWith(*p, o); return p->getModulatedValue("flt.cutoff"); }();
+            setParam(*p, "macro.2", 1.0f);
+            std::vector<float> o; renderWith(*p, o);
+            const float cut1 = p->getModulatedValue("flt.cutoff"), mix1 = p->getModulatedValue("rv.mix");
+            std::printf("       macro 2 (3 targets): cutoff %.0f -> %.0f Hz (amount -50 %%), reverb mix -> %.2f\n", cut0, cut1, mix1);
+            check(cut1 < cut0 && mix1 > p->apvts.getRawParameterValue("rv.mix")->load(), "negative and positive amounts move their targets in opposite directions");
+            check(juce::roundToInt(p->apvts.getRawParameterValue("mm." + juce::String(s1) + ".dst")->load()) == d1,
+                  "right-click assignments are ordinary matrix slots (the Modulation tab shows them)");
+
+            // persistence
+            juce::MemoryBlock mb; p->getStateInformation(mb);
+            auto q = fresh(); q->setStateInformation(mb.getData(), int(mb.getSize()));
+            std::vector<float> o2; renderWith(*q, o2);
+            check(ma::forSource(q->apvts, src).size() == list.size() && std::abs(q->getModulatedValue("flt.cutoff") - cut1) < 1.0f,
+                  "macro assignments, amounts and macro values survive save / reload");
+
+            // edit + remove
+            ma::setAmount(p->apvts, s1, 0.25f);
+            check(std::abs(p->apvts.getRawParameterValue("mm." + juce::String(s1) + ".amt")->load() - 0.25f) < 1e-4f, "amount edit writes the matrix slot");
+            ma::remove(p->apvts, s1);
+            check(ma::forSource(p->apvts, src).size() == list.size() - 1, "remove clears the matrix slot");
+
+            // full matrix reports 0 instead of overwriting
+            auto f = fresh();
+            int filled = 0; for (int k = 0; k < 40; ++k) if (ma::add(f->apvts, ambient::modsrc::Lfo1 + (k % 4), 1 + k, 0.1f) > 0) ++filled;
+            check(filled == 24, "with 8 default macro slots, 24 free slots can be filled; a full matrix refuses further assignments");
+        }
+    }
+
     // Stage 9: presets, routing, automation fuzz.
     {
         auto fresh = [&]()
@@ -841,9 +939,7 @@ static int renderMascotSheet(const juce::File& out, float scale)
     // Before / after
     panel({ 580, 30, 990, 330 });
     title("BEFORE  /  AFTER", 600, 44);
-    Mascot::State old; old.orb = 0.6f; old.aura = 0.3f;
-    Mascot::draw(g, { 620, 80, 200, 240 }, old);
-    label("current (v1)", { 620, 322, 200, 20 });
+    label("(v1 retired)", { 620, 322, 200, 20 });
     MascotArt::draw(g, { 870, 80, 150, 240 }, hero);
     label("proposed (v2)", { 845, 322, 200, 20 });
 
@@ -904,6 +1000,45 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && juce::String(argv[1]) == "--selftest") return runSelfTest();
+    if (argc > 1 && juce::String(argv[1]) == "--mascot-states")
+    {
+        // Renders the live Mascot driven through its real tick() inputs (no hand-made poses).
+        using ambient::ui::Mascot;
+        juce::Image img(juce::Image::ARGB, 1400, 300, true);
+        juce::Graphics g(img);
+        g.fillAll(juce::Colour(0xff0e0e12));
+        struct Case { const char* label; std::function<void(Mascot&)> drive; };
+        auto run = [](Mascot& m, float secs, Mascot::Inputs in, std::function<void(Mascot::Inputs&, int)> per = nullptr)
+        { for (int f = 0; f < int(secs * 60); ++f) { if (per) per(in, f); m.tick(1.0f / 60.0f, in); } };
+        std::vector<Case> cases {
+            { "IDLE / NO SIGNAL", [&](Mascot& m) { run(m, 2.0f, {}); } },
+            { "AUDIO PLAYING", [&](Mascot& m) { Mascot::Inputs in; in.outputLevel = 0.5f; run(m, 2.0f, in); } },
+            { "SIDECHAIN ACTIVE", [&](Mascot& m) { Mascot::Inputs in; in.sidechainActive = true; in.outputLevel = 0.3f; run(m, 2.0f, in); } },
+            { "KICK", [&](Mascot& m) { Mascot::Inputs in; in.sidechainActive = true; in.outputLevel = 0.3f; run(m, 1.0f, in);
+                                      in.transientCount = 1; in.transientStrength = 0.5f; in.reductionDb = 4; run(m, 0.05f, in); } },
+            { "STRONG KICK", [&](Mascot& m) { Mascot::Inputs in; in.sidechainActive = true; in.outputLevel = 0.5f; run(m, 1.0f, in);
+                                      in.transientCount = 1; in.transientStrength = 1.0f; in.reductionDb = 9; run(m, 0.05f, in); } },
+            { "HIGH REDUCTION", [&](Mascot& m) { Mascot::Inputs in; in.sidechainActive = true; in.outputLevel = 0.4f; in.reductionDb = 14; run(m, 1.5f, in); } },
+            { "LFO SWAY", [&](Mascot& m) { Mascot::Inputs in; in.outputLevel = 0.3f; in.lfo = 1.0f; run(m, 1.5f, in); } },
+        };
+        int x = 20;
+        for (auto& c : cases)
+        {
+            Mascot m; m.setBounds(0, 0, 150, 240);
+            c.drive(m);
+            ambient::ui::MascotArt::draw(g, juce::Rectangle<float>(float(x), 20.0f, 150.0f, 240.0f), m.getPose());
+            g.setColour(juce::Colours::white.withAlpha(0.8f));
+            g.setFont(12.0f);
+            g.drawText(c.label, x - 20, 268, 190, 20, juce::Justification::centred);
+            x += 195;
+        }
+        auto out = juce::File::getCurrentWorkingDirectory().getChildFile(argc > 2 ? argv[2] : "mascot_states.png");
+        out.deleteFile();
+        juce::FileOutputStream os(out);
+        juce::PNGImageFormat().writeImageToStream(img, os);
+        std::printf("wrote %s\n", out.getFullPathName().toRawUTF8());
+        return 0;
+    }
     if (argc > 1 && juce::String(argv[1]) == "--list-params")
     {
         AmbientProcessor p;

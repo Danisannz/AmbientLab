@@ -195,6 +195,12 @@ inline constexpr std::array<const char*, 92> kDestinationNames {
     "FX Chain Gain"
 };
 inline constexpr int kNumDestinations = int(kDestinations.size());   // + index 0 = "None"
+/** Matrix destination index (1-based, as stored in mm.N.dst) of a parameter ID, 0 = not modulatable. */
+inline int indexOf(std::string_view paramId) noexcept
+{
+    for (int k = 0; k < kNumDestinations; ++k) if (kDestinations[size_t(k)] == paramId) return k + 1;
+    return 0;
+}
 } // namespace ambient::moddest
 
 namespace ambient::modsrc
@@ -212,5 +218,12 @@ inline constexpr std::array<const char*, kCount> kNames {
     "None", "LFO 1", "LFO 2", "LFO 3", "LFO 4",
     "Macro 1", "Macro 2", "Macro 3", "Macro 4", "Macro 5", "Macro 6", "Macro 7", "Macro 8",
     "Velocity", "Mod Wheel", "Aftertouch", "Pitch Bend", "Note (key)", "Note Random",
-    "SC Envelope", "SC Transient", "SC Low", "SC Mid", "SC High", "SC Centroid", "SC Gain Reduction" };
+    "SC Envelope", "SC Transient", "SC Low", "SC Mid", "SC High", "SC Centroid", "SC Gain Reduction",
+    "Seq Gate", "Seq Velocity", "Seq Step" };
+static_assert(kNames.back() != nullptr, "every modulation source needs a name");
+/** Bipolar sources swing -1..1 around the knob value; the others push 0..1 in the amount's direction. */
+inline bool isBipolar(int source) noexcept
+{
+    return (source >= Lfo1 && source <= Lfo4) || source == PitchBend || source == NoteKey || source == NoteRandom;
+}
 } // namespace ambient::modsrc

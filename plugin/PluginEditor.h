@@ -7,13 +7,14 @@
 #include "ui/FilterEnvPanels.h"
 #include "ui/ModulationPanels.h"
 #include "ui/SequencerPanel.h"
+#include "ui/ModAssign.h"
 #include "ui/UiSettings.h"
 #include "viz/VisualizerHub.h"
 
 /** AMBIENTLAB editor.
     Layout:  header | tab bar | [ active page | docked analyzer ] | macros footer
     The analyzer can expand over the page area. */
-class AmbientEditor : public juce::AudioProcessorEditor, private juce::Timer
+class AmbientEditor : public juce::AudioProcessorEditor, private juce::Timer, public ambient::ui::modassign::MatrixOpener
 {
 public:
     explicit AmbientEditor(AmbientProcessor&);
@@ -45,6 +46,7 @@ private:
     };
 
     void timerCallback() override;
+    void openModulationMatrix() override { showPage(2); }
     void buildPages();
     void setScale(float s);
     void showPage(int index);

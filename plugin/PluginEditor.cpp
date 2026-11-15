@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "ui/ModAssign.h"
 #include "Parameters.h"
 #include <ambient/ParamIDs.h>
 #include <BinaryData.h>

@@ -49,8 +49,30 @@ void HeaderBar::tick(float dt)
 
     const auto& t = proc.sidechainTelemetry();
     const bool scOn = proc.apvts.getRawParameterValue("sc.enable")->load() > 0.5f;
-    mascot.tick(dt, t.transientCount.load(std::memory_order_relaxed), t.lastTransientStrength.load(std::memory_order_relaxed),
-                scOn && t.referencePresent.load(std::memory_order_relaxed), t.maxReductionDb.load(std::memory_order_relaxed));
+    {
+        Mascot::Inputs mi;
+        mi.transientCount = t.transientCount.load(std::memory_order_relaxed);
+        mi.transientStrength = t.lastTransientStrength.load(std::memory_order_relaxed);
+        mi.sidechainActive = scOn && t.referencePresent.load(std::memory_order_relaxed);
+        mi.reductionDb = t.maxReductionDb.load(std::memory_order_relaxed);
+        mi.outputLevel = juce::jmax(proc.peakL.load(std::memory_order_relaxed), proc.peakR.load(std::memory_order_relaxed));
+        // strongest LFO that is actually routed in the matrix (unrouted LFOs do not move the mascot)
+        float best = 0.0f;
+        for (int m = 1; m <= 32; ++m)
+        {
+            const int src = juce::roundToInt(proc.apvts.getRawParameterValue("mm." + juce::String(m) + ".src")->load());
+            const float amt = proc.apvts.getRawParameterValue("mm." + juce::String(m) + ".amt")->load();
+            const int dst = juce::roundToInt(proc.apvts.getRawParameterValue("mm." + juce::String(m) + ".dst")->load());
+            if (src >= 1 && src <= 4 && dst > 0 && std::abs(amt) >= 0.1f)
+            {
+                const float v = proc.lfoOut[size_t(src - 1)].load(std::memory_order_relaxed);
+                if (std::abs(v) * std::abs(amt) > std::abs(best)) best = v * juce::jmin(1.0f, std::abs(amt) * 2.0f);
+            }
+        }
+        mi.lfo = best;
+        mi.seqStep = proc.apvts.getRawParameterValue("seq.on")->load() > 0.5f ? proc.seqCurrentStep.load(std::memory_order_relaxed) : -1;
+        mascot.tick(dt, mi);
+    }
 
     if ((infoTimer += dt) >= 0.25f) // readouts at 4 Hz: readable and cheap
     {

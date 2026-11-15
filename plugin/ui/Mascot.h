@@ -1,52 +1,62 @@
 #pragma once
-// "Glim" - the AmbientLab mascot: an alien gnome (original artwork, vector-drawn).
+// "Glim" v2 - the AmbientLab mascot (drawing: MascotArt).
 //
-// Reactions are driven ONLY by real detector data polled on the UI thread:
-//   no signal            -> idle (slow deterministic breathing / hat sway)
-//   detected transient   -> blink + antenna flash (strength scales the flash)
-//   strong transient     -> additionally a short hat bounce
-//   sidechain active     -> subtle lime aura
-//   gain reduction       -> aura intensity follows the reduction amount
-// The audio thread only increments an atomic counter; it never draws or animates.
+// Every reaction is driven by real DSP telemetry polled on the UI thread (never random,
+// never on the audio thread):
+//   idle / no signal      -> slow breathing + float, deterministic blink every ~5 s, relaxed lids
+//   audio level           -> breathing / float intensity and alertness follow the output level
+//   detected kick         -> pupils pulse, hat tip flashes, lime details brighten, small hop
+//                            (all scaled by the detector's transient strength)
+//   strong kick (> 0.7)   -> surprise: wide eyes, 'o' mouth, hat jolt
+//   sidechain active      -> lime details lit; gain reduction drives the aura and perks the ears
+//   routed LFO activity   -> subtle hat sway following the LFO value
+//   sequencer steps       -> small nod on each step (rhythm)
+// The audio thread only publishes atomics (counters, levels); the UI smooths everything.
 
 #include "Theme.h"
+#include "MascotArt.h"
 
 namespace ambient::ui
 {
 class Mascot : public juce::Component
 {
 public:
-    struct State
+    /** Telemetry snapshot read by the UI timer. */
+    struct Inputs
     {
-        float eyeOpen = 1.0f;     // 0 closed .. 1 open
-        float orb = 0.35f;        // antenna glow 0..1
-        float aura = 0.0f;        // lime aura 0..1
-        float hatTilt = 0.0f;     // radians
-        float bob = 0.0f;         // vertical offset (fraction of height)
-        bool  mono = false;       // monochrome small-icon rendering
+        uint32_t transientCount = 0;   // monotonic counter from the sidechain detector
+        float transientStrength = 0;   // 0..1 strength of the last detected kick
+        bool  sidechainActive = false; // sidechain enabled and a reference signal present
+        float reductionDb = 0;         // current maximum band reduction (dB)
+        float outputLevel = 0;         // output peak (linear)
+        float lfo = 0;                 // value of the strongest *routed* LFO, -1..1 (0 = none)
+        int   seqStep = -1;            // current sequencer step (-1 = stopped)
     };
 
     Mascot();
 
-    /** Poll from the UI timer. transientCount: monotonic counter from the detector. */
-    void tick(float dt, uint32_t transientCount, float lastStrength, bool sidechainActive, float reductionDb);
+    void tick(float dt, const Inputs&);
+    /** Legacy entry point (sidechain-only telemetry). */
+    void tick(float dt, uint32_t transientCount, float lastStrength, bool sidechainActive, float reductionDb)
+    {
+        Inputs in; in.transientCount = transientCount; in.transientStrength = lastStrength;
+        in.sidechainActive = sidechainActive; in.reductionDb = reductionDb;
+        tick(dt, in);
+    }
     void setAnimated(bool a);
     bool isAnimated() const noexcept { return animated; }
 
     void paint(juce::Graphics&) override;
 
-    /** Draws the character into `area` (aspect preserved). Usable for small static icons. */
-    static void draw(juce::Graphics&, juce::Rectangle<float> area, const State&);
-
-    /** Number of reactions triggered so far (for tests / diagnostics). */
+    /** Number of kick reactions triggered so far (tests / diagnostics). */
     uint32_t getReactionCount() const noexcept { return reactions; }
+    const MascotPose& getPose() const noexcept { return pose; }
 
 private:
-    State state;
-    bool animated = true;
-    float time = 0.0f, blink = 0.0f, flash = 0.0f, hatKick = 0.0f, auraTarget = 0.0f;
+    MascotPose pose, shown;
+    bool animated = true, first = true;
+    float time = 0, level = 0, kick = 0, surprise = 0, hop = 0, nod = 0, aura = 0, glow = 0, ears = 0, sway = 0;
     uint32_t lastCount = 0, reactions = 0;
-    bool first = true;
-    State shown;
+    int lastStep = -1;
 };
 } // namespace ambient::ui

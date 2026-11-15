@@ -38,6 +38,20 @@ Process
 - Sidechain (Instrument and FX): Ableton -> device Sidechain section -> pick the kick track. Diagnostics
   line in Process > Sidechain must read `SC BUS ON | 2 ch | SAMPLES YES`.
 
+Macros and right-click modulation
+- Turn each macro: its targets are printed under the knob (defaults: Instrument cutoff, resonance, detune,
+  saturation drive, drift, amp release, sub level, output width; FX input gain, width, bass mono, chain gain,
+  granular / delay / reverb mix, reverb decay - the last four need that effect switched on).
+- Right-click a macro: edit amounts (drag the bar, +/- inverts, x removes), "Assign Macro N to..." adds targets.
+- Right-click any knob (e.g. Filter Cutoff): Add modulation source -> LFO 1; a lime ring shows the range; the
+  same slot appears in the Modulation tab; "Open modulation matrix..." jumps there.
+- Automate a macro in the DAW; save / reopen the project: assignments and amounts restored.
+
+Mascot (header)
+- No audio: slow breathing, relaxed lids, blink every ~5 s. Playing: livelier. Kick into the sidechain:
+  pupils pulse + hat tip flash (strong kicks: surprised face). High gain reduction: green aura, ears perk.
+  Settings menu -> "Mascot animation" turns it off.
+
 Modulation
 - LFO 1-4: waveforms, Sync to host, Retrig, Custom curve (drag points).
 - Matrix: e.g. LFO 1 -> Filter Cutoff 30 %, Macro 1 -> Reverb Mix, SC Transient -> Filter Cutoff -20 %.

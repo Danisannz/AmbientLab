@@ -180,6 +180,13 @@ public:
     void loadSeqPreset(int index);
     void randomiseSeq(float amount);
     std::atomic<int> seqCurrentStep { -1 };
+    /** Diagnostics / tests: effective (modulated) value of a destination parameter as the DSP
+        used it in the last processed control block (raw value if it is not a destination). */
+    float getModulatedValue(const juce::String& paramID) const
+    {
+        const int k = ambient::moddest::indexOf(paramID.toStdString());
+        return k > 0 ? modValue[size_t(k - 1)] : apvts.getRawParameterValue(paramID)->load();
+    }
     // Presets (message thread). The name is stored in the state, so it survives sessions.
     juce::String getPresetName() const { return apvts.state.getProperty("presetName", "Init").toString(); }
     void setPresetName(const juce::String& n) { apvts.state.setProperty("presetName", n, nullptr); }
