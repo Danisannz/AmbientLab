@@ -6,7 +6,8 @@ placeholders show the stage number; no control appears before its engine exists.
 | Stage | Scope | Status |
 |---|---|---|
 | 1 | Project foundation, VST3 Instrument + FX, state versioning | Done |
-| UI | Interface redesign, analyzer (scope, vectorscope, spectrum) | In progress |
+| UI | Interface redesign, analyzer (scope, vectorscope, spectrum) | Done (branch) |
+| SC | Frequency Sidechain (intelligent spectral ducking) + mascot | Done (branch) - see SIDECHAIN.md |
 | 2 | Oscillators, sub, noise, filter, envelopes | Planned |
 | 3 | Granular engine | Planned |
 | 4 | Reverb algorithms | Planned |
@@ -16,7 +17,16 @@ placeholders show the stage number; no control appears before its engine exists.
 | 8 | Flexible routing + stereo engine | Planned |
 | 10 | Presets, optimization, validation | Planned |
 
+## Stage 6 - modulation: sources already prepared
+
+The Frequency Sidechain implements `ambient::mod::ModulationSource` with stable
+IDs 100-106 (envelope, transient, low/mid/high energy, centroid, gain reduction).
+The matrix should consume sources through that interface; see docs/SIDECHAIN.md.
+
 ## Stage 7 - sequencer: additional requirements (requested 2026-11-14)
+
+Full list: 16/32 steps, gates, probability, ratchets, swing, parameter locks,
+pattern randomisation, plus the scale features below.
 
 **Scale mode (pitch quantisation)**
 - Pitch steps are quantised to a selectable scale and root note.

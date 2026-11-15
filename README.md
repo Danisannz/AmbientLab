@@ -24,6 +24,11 @@ spectrum) that can expand over the work area. Engines that are not built yet
 appear as labelled placeholders with their stage number - never as fake controls.
 Settings > Graphics quality switches Standard / High quality (see docs/ANALYZER.md).
 
+**Frequency Sidechain** - route a Kick/Bass channel to the plugin's sidechain input:
+AmbientLab is attenuated only where it genuinely conflicts with the reference
+(4 dynamic bands, Auto detection, zero latency). See docs/SIDECHAIN.md. The
+mascot, Glim, reacts to the detected kicks.
+
 ## Getting the plugin
 
 Every push builds on GitHub Actions. Open the **Actions** tab → latest run → download
@@ -44,7 +49,7 @@ core/     DSP library, no JUCE dependency (unit-tested headless)
 plugin/   JUCE processor, parameters, state migration, editor
 tests/    Catch2 unit tests
 tools/    snapshot: headless editor renderer + rendering benchmark (optional)
-docs/     ROADMAP.md, ANALYZER.md (architecture, level conventions, benchmark)
+docs/     ROADMAP.md, ANALYZER.md, SIDECHAIN.md
 ```
 
 ## Design rules
