@@ -213,6 +213,32 @@ int main(int argc, char** argv)
             check(r.outRms > 1.0e-3, "plugin works normally without a sidechain");
         }
     }
+    // ---- 4. State restoration exactly as pluginval does it (incl. bool / choice snapping) ----
+    {
+        juce::MemoryBlock original;
+        p->getStateInformation(original);
+        p->setStateInformation(original.getData(), int(original.getSize()));
+        juce::Random rng(1234);
+        int bad = 0, total = 0;
+        for (auto* prm : p->getParameters())
+        {
+            if (! prm->isAutomatable() || prm == p->getBypassParameter()) continue;
+            const float before = prm->getValue();
+            prm->setValue(rng.nextFloat());
+            p->setStateInformation(original.getData(), int(original.getSize()));
+            ++total;
+            if (std::abs(prm->getValue() - before) > 0.1f)
+            {
+                if (bad < 5) std::printf("  not restored: %s (%.3f -> %.3f)\n", prm->getName(64).toRawUTF8(), before, prm->getValue());
+                ++bad;
+            }
+        }
+        check(bad == 0, "state restoration: all " + juce::String(total) + " parameters return to their saved value after a random host change");
+        juce::MemoryBlock again;
+        p->getStateInformation(again);
+        check(again == original, "state returned after restoring equals the state that was set");
+    }
+
     p->releaseResources();
     p.reset();
     std::printf("%s (%d failure%s)\n", failures == 0 ? "VST3 HOST TEST PASSED" : "VST3 HOST TEST FAILED", failures, failures == 1 ? "" : "s");

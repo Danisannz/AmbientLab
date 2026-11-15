@@ -713,6 +713,7 @@ void AmbientProcessor::getStateInformation(juce::MemoryBlock& dest)
 {
     auto state = apvts.copyState();
     state.setProperty(kVersionProp, ids::kStateVersion, nullptr);
+    state.setProperty("program", currentProgram, nullptr);
     state.removeChild(state.getChildWithName("SEQPATTERN"), nullptr);
     state.appendChild(patternToTree(), nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, dest);
@@ -725,7 +726,17 @@ void AmbientProcessor::setStateInformation(const void* data, int size)
     auto tree = juce::ValueTree::fromXml(*xml);
     migrateState(tree); // newer-version states still load known params
     patternFromTree(tree.getChildWithName("SEQPATTERN"));
+    currentProgram = juce::jlimit(0, juce::jmax(0, getNumPrograms() - 1), int(tree.getProperty("program", 0)));
     apvts.replaceState(tree);
+    // Bool / choice parameters keep an unsnapped normalised value set by the host (e.g. 0.27);
+    // replaceState skips them when the snapped value is unchanged, so the host would keep
+    // seeing 0.27. Snap every parameter to its exact stored value and notify the host.
+    for (auto* prm : getParameters())
+        if (auto* r = dynamic_cast<juce::RangedAudioParameter*>(prm))
+        {
+            const float exact = r->convertTo0to1(r->convertFrom0to1(r->getValue()));
+            if (exact != r->getValue()) r->setValueNotifyingHost(exact);
+        }
 }
 
 int AmbientProcessor::getNumPrograms() { return ambient::presets::numFactory(); }
