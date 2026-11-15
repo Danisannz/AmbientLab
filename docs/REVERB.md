@@ -37,5 +37,9 @@ decay scales with Decay, pre-delay onset, mix 0 bit-exact, freeze within 6 dB ov
 infinite still ringing 5 s after input stops, damping darkens the tail, pairwise impulse-response
 correlation < 0.5 between types, L/R correlation < 0.6, shimmer adds > 15 dB octave energy vs Hall.
 
-CPU (whole processBlock delta, Linux/clang Release, block 512): 0.5-1.6 % of one core at 48 kHz,
-2-7 % at 192 kHz (Infinite/Cathedral highest). Windows numbers come from the CI self test.
+CPU added by the reverb (processBlock delta, block 512, one core):
+
+| Build | 48 kHz | 192 kHz |
+|---|---|---|
+| Windows / MSVC Release (CI runner) | 1.0 % (Plate, Spring) - 1.7 % (Shimmer, Infinite) | 4-8 % |
+| Linux / clang Release | 0.5-1.6 % | 2-7 % |
