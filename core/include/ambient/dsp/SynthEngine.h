@@ -4,10 +4,12 @@
 // Per voice:  Osc A (unison 1..7) + Osc B (unison 1..7) + Sub + Noise
 //             B -> A through-zero linear FM and phase modulation
 //             analog drift (Ornstein-Uhlenbeck pitch walk + per-unison component offsets)
-//             mix -> saturation / waveshaping (ADAA) -> amp gate
-// The amp gate is a TEMPORARY fixed attack/release until the Stage 3 envelope engine.
+//             mix -> saturation / waveshaping (ADAA) -> multimode filter (drive) -> amp ADSR
+//             mod ADSR -> filter cutoff (+-6 oct) and pitch (+-24 st); keytracking, velocity
 // Real-time safe: no allocation after prepare(); all state is fixed-size.
 
+#include "Envelope.h"
+#include "Filter.h"
 #include "Oscillator.h"
 #include <array>
 
@@ -51,6 +53,19 @@ public:
         float satDrive = 0.0f;   // dB 0..24
         float satMix = 1.0f;     // 0..1
         float velocitySens = 0.6f;
+
+        // Stage 3: filter + envelopes
+        bool  filterOn = true;
+        int   filterMode = 0;      // MultiFilter::Mode
+        float cutoff = 8000.0f;    // Hz
+        float resonance = 0.2f;    // 0..1
+        float filterDrive = 0.0f;  // dB 0..24
+        float filterEnv = 0.0f;    // -1..1 -> +-6 octaves from the mod envelope
+        float keytrack = 0.5f;     // 0..1 (1 = cutoff follows pitch 1:1, ref. C4)
+        float velToCutoff = 0.0f;  // 0..1 -> up to +2 octaves at full velocity
+        Adsr::Params ampEnv { 5.0f, 300.0f, 0.8f, 400.0f };
+        Adsr::Params modEnv { 10.0f, 600.0f, 0.0f, 600.0f };
+        float modEnvPitch = 0.0f;  // semitones -24..+24
     };
 
     void prepare(double sampleRate, int maxBlock);
@@ -77,7 +92,10 @@ private:
     struct Voice
     {
         int note = -1;
-        float velocity = 0.0f, gain = 0.0f, target = 0.0f;
+        float velocity = 0.0f;
+        bool held = false;           // key down (vs. releasing)
+        Adsr amp, mod;
+        MultiFilter filterL, filterR;
         unsigned age = 0;
         OscState a, b;
         BlepOsc sub;
@@ -85,7 +103,7 @@ private:
         Drift drift { 1u };
         float driftCents = 0.0f;
         Saturator satL, satR;
-        bool active() const noexcept { return gain > 0.0f || target > 0.0f; }
+        bool active() const noexcept { return amp.isActive(); }
     };
 
     void startVoice(Voice&, int note, float velocity) noexcept;
@@ -93,8 +111,8 @@ private:
     Params params;
     std::array<Voice, kMaxVoices> voices;
     double sr = 48000.0;
-    float attackStep = 0.0f, releaseCoeff = 0.0f;
     unsigned ageCounter = 0;
     static constexpr int kControlBlock = 32;
+    static constexpr int kFilterBlock = 8; // filter coefficient update interval
 };
 } // namespace ambient::dsp

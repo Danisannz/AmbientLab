@@ -16,14 +16,14 @@ inline float unisonPos(int i, int n) noexcept { return n <= 1 ? 0.0f : -1.0f + 2
 void SynthEngine::prepare(double sampleRate, int)
 {
     sr = sampleRate > 0.0 ? sampleRate : 48000.0;
-    attackStep = float(1.0 / (0.003 * sr));                 // temporary gate: 3 ms linear attack
-    releaseCoeff = float(std::exp(-1.0 / (0.12 * sr)));     // 120 ms exponential release
     uint32_t seed = 0xA51u;
     for (auto& v : voices)
     {
         v.noise = Noise(seed++ * 2654435761u);
         v.drift = Drift(seed++ * 2246822519u);
         v.drift.setTimeConstant(1.8f);
+        v.amp.setSampleRate(sr);
+        v.mod.setSampleRate(sr);
         Rng r(seed++ * 3266489917u);
         for (auto& t : v.a.tolerance) t = r.bi();
         for (auto& t : v.b.tolerance) t = r.bi();
@@ -35,7 +35,9 @@ void SynthEngine::reset()
 {
     for (auto& v : voices)
     {
-        v.note = -1; v.gain = v.target = 0.0f;
+        v.note = -1; v.held = false;
+        v.amp.reset(); v.mod.reset();
+        v.filterL.reset(); v.filterR.reset();
         v.satL.reset(); v.satR.reset(); v.noise.reset(); v.drift.reset();
     }
 }
@@ -45,8 +47,12 @@ void SynthEngine::startVoice(Voice& v, int note, float velocity) noexcept
     const bool wasSilent = ! v.active();
     v.note = note;
     v.velocity = std::clamp(velocity, 0.0f, 1.0f);
-    v.target = 1.0f;
+    v.held = true;
     v.age = ++ageCounter;
+    v.amp.setParams(params.ampEnv);
+    v.mod.setParams(params.modEnv);
+    v.amp.noteOn();  // retriggers from the current level: no click on stolen voices
+    v.mod.noteOn();
     if (wasSilent) // a stolen, still-sounding voice keeps its phases: no click
     {
         Rng r(uint32_t(note * 7919 + int(ageCounter)));
@@ -60,6 +66,7 @@ void SynthEngine::startVoice(Voice& v, int note, float velocity) noexcept
         }
         v.sub.reset(params.a.phase < 0.0f ? 0.25 : params.a.phase);
         v.satL.reset(); v.satR.reset();
+        v.filterL.reset(); v.filterR.reset();
     }
 }
 
@@ -73,7 +80,7 @@ void SynthEngine::noteOn(int note, float velocity) noexcept
         chosen = &voices[0];
         for (auto& v : voices)
         {
-            const bool vRel = v.target <= 0.0f, cRel = chosen->target <= 0.0f;
+            const bool vRel = ! v.held, cRel = ! chosen->held;
             if ((vRel && ! cRel) || (vRel == cRel && v.age < chosen->age)) chosen = &v;
         }
     }
@@ -82,12 +89,12 @@ void SynthEngine::noteOn(int note, float velocity) noexcept
 
 void SynthEngine::noteOff(int note) noexcept
 {
-    for (auto& v : voices) if (v.note == note && v.target > 0.0f) { v.target = 0.0f; }
+    for (auto& v : voices) if (v.note == note && v.held) { v.held = false; v.amp.noteOff(); v.mod.noteOff(); }
 }
 
 void SynthEngine::allNotesOff() noexcept
 {
-    for (auto& v : voices) v.target = 0.0f;
+    for (auto& v : voices) if (v.held) { v.held = false; v.amp.noteOff(); v.mod.noteOff(); }
 }
 
 int SynthEngine::activeVoices() const noexcept
@@ -118,10 +125,19 @@ void SynthEngine::render(float* L, float* R, int start, int end) noexcept
     }
     constexpr float kPanNorm = 1.41421356f; // centre pan = unity
 
+    const auto fMode = MultiFilter::Mode(std::clamp(p.filterMode, 0, 5));
+    const float fDrive = std::pow(10.0f, std::clamp(p.filterDrive, 0.0f, 24.0f) / 20.0f);
+
     for (auto& v : voices)
     {
         if (! v.active()) continue;
         const float vel = 1.0f - p.velocitySens + p.velocitySens * v.velocity;
+        v.amp.setParams(p.ampEnv);   // envelope times are live (applied to the running segment)
+        v.mod.setParams(p.modEnv);
+        v.filterL.setDrive(fDrive);
+        v.filterR.setDrive(fDrive);
+        const float keyOct = p.keytrack * float(v.note - 60) / 12.0f;
+        const float velOct = p.velToCutoff * 2.0f * v.velocity;
 
         for (int s0 = start; s0 < end; s0 += kControlBlock)
         {
@@ -129,8 +145,9 @@ void SynthEngine::render(float* L, float* R, int start, int end) noexcept
             // ---- control rate: pitch incl. drift --------------------------------------
             const float driftNow = v.drift.step(float(s1 - s0) / float(sr));
             const float driftCents = driftAmt * 9.0f * driftNow; // up to ~ +-9 cents (1 sigma) at full drift
-            const double baseA = double(v.note) + 12.0 * std::clamp(p.a.octave, -3, 3) + std::clamp(p.a.semi, -12, 12) + p.a.fine / 100.0;
-            const double baseB = double(v.note) + 12.0 * std::clamp(p.b.octave, -3, 3) + std::clamp(p.b.semi, -12, 12) + p.b.fine / 100.0;
+            const double envPitch = double(p.modEnvPitch) * double(v.mod.getLevel()); // semitones, control rate
+            const double baseA = double(v.note) + envPitch + 12.0 * std::clamp(p.a.octave, -3, 3) + std::clamp(p.a.semi, -12, 12) + p.a.fine / 100.0;
+            const double baseB = double(v.note) + envPitch + 12.0 * std::clamp(p.b.octave, -3, 3) + std::clamp(p.b.semi, -12, 12) + p.b.fine / 100.0;
             std::array<double, kMaxUnison> incA {}, incB {};
             for (int i = 0; i < ua; ++i)
             {
@@ -146,9 +163,19 @@ void SynthEngine::render(float* L, float* R, int start, int end) noexcept
 
             for (int s = s0; s < s1; ++s)
             {
-                // ---- temporary amp gate --------------------------------------------------
-                if (v.target > 0.0f) v.gain = std::min(1.0f, v.gain + attackStep);
-                else { v.gain *= releaseCoeff; if (v.gain < 1.0e-4f) { v.gain = 0.0f; v.note = -1; break; } }
+                // ---- envelopes --------------------------------------------------------------
+                const float ampLevel = v.amp.next();
+                const float modLevel = v.mod.next();
+                if (! v.amp.isActive()) { v.note = -1; break; }
+
+                // ---- filter coefficients every kFilterBlock samples (TPT SVF: smooth under modulation)
+                if (p.filterOn && ((s - s0) % kFilterBlock) == 0)
+                {
+                    const float oct = keyOct + velOct + p.filterEnv * 6.0f * modLevel;
+                    const float fc = p.cutoff * std::exp2(oct);
+                    v.filterL.set(sr, fc, p.resonance, fMode);
+                    v.filterR.set(sr, fc, p.resonance, fMode);
+                }
 
                 float l = 0.0f, r = 0.0f;
 
@@ -194,7 +221,9 @@ void SynthEngine::render(float* L, float* R, int start, int end) noexcept
                     r += p.satMix * (wr - r);
                 }
 
-                const float amp = v.gain * vel * 0.35f; // headroom for 8 voices
+                if (p.filterOn) { l = v.filterL.process(l); r = v.filterR.process(r); }
+
+                const float amp = ampLevel * vel * 0.35f; // headroom for 8 voices
                 L[s] += l * amp;
                 R[s] += r * amp;
             }
