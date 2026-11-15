@@ -9,6 +9,7 @@
 #include <ambient/dsp/Granular.h>
 #include <ambient/dsp/Reverb.h>
 #include <ambient/dsp/StereoSafety.h>
+#include <ambient/dsp/Delay.h>
 #include <ambient/ParamIDs.h>
 #include <array>
 
@@ -102,6 +103,10 @@ private:
     void readReverbParams();
     std::vector<std::atomic<float>*> rvRaw;
     ambient::dsp::StereoSafety stereoSafety;
+    ambient::dsp::Delay delay;
+    void readDelayParams();
+    std::vector<std::atomic<float>*> dlRaw;
+    double hostBpm = 120.0;
     void readStereoParams();
     std::vector<std::atomic<float>*> outRaw;
 public:

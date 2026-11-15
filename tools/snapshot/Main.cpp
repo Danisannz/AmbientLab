@@ -431,6 +431,52 @@ static int runSelfTest()
             }
     }
 
+    // Delay (Stage 6): synced echo position through the whole plugin (no host playhead = 120 BPM),
+    // and CPU per type.
+    {
+        auto runDelay = [&](int mode, double rate, double* cpuPct, size_t* echoAt)
+        {
+            AmbientProcessor p;
+            p.setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                        juce::AudioChannelSet::stereo()));
+            p.setRateAndBufferSizeDetails(rate, 512);
+            p.prepareToPlay(rate, 512);
+            setParam(p, "dl.on", 1.0f); setParam(p, "dl.mode", float(mode)); setParam(p, "dl.mix", 0.5f);
+            setParam(p, "dl.division", 9.0f);   // 1/4 -> 500 ms at 120 BPM
+            setParam(p, "env.amp.a", 0.5f); setParam(p, "env.amp.d", 1.0f); setParam(p, "env.amp.s", 0.0f); setParam(p, "env.amp.r", 1.0f);
+            const int ch = juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels(), 2);
+            juce::AudioBuffer<float> buf(ch, 512);
+            juce::MidiBuffer on, none; on.addEvent(juce::MidiMessage::noteOn(1, 72, 1.0f), 0);
+            const int blocks = int(rate * 1.0 / 512);
+            std::vector<float> L; double t0 = 0;
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+               #if ! AMBIENT_IS_INSTRUMENT
+                if (b == 0) for (int i = 0; i < 64; ++i) { buf.setSample(0, i, 0.8f); buf.setSample(1, i, 0.8f); }
+               #endif
+                if (b == blocks / 4) t0 = juce::Time::getMillisecondCounterHiRes();
+                p.processBlock(buf, b == 0 ? on : none);
+                for (int i = 0; i < 512; ++i) L.push_back(buf.getSample(0, i));
+            }
+            if (cpuPct) *cpuPct = 100.0 * (juce::Time::getMillisecondCounterHiRes() - t0) / ((blocks - blocks / 4) * 512 * 1000.0 / rate);
+            if (echoAt)
+            {   // first strong onset after 300 ms
+                size_t k = 0; float pk = 0; for (size_t i = size_t(rate * 0.3); i < size_t(rate * 0.7); ++i) if (std::abs(L[i]) > pk) { pk = std::abs(L[i]); k = i; }
+                size_t on1 = k; while (on1 > size_t(rate * 0.3) && std::abs(L[on1]) > 0.1f * pk) --on1;
+                *echoAt = on1;
+            }
+        };
+        size_t at = 0;
+        runDelay(2, sr, nullptr, &at);
+        std::printf("       digital delay 1/4 @ 120 BPM: echo onset at %.1f ms\n", 1000.0 * double(at) / sr);
+        check(std::abs(double(at) / sr - 0.5) < 0.012, "synced delay echo arrives at 500 ms (1/4 @ 120 BPM)");
+        std::printf("       delay cost (processBlock total, block 512):\n");
+        const char* names[] = { "Tape", "BBD", "Digital", "Ping-pong", "Multi-tap", "Reverse", "Pitch", "Granular" };
+        for (double rate : { 48000.0, 192000.0 })
+            for (int m = 0; m < 8; ++m) { double c = 0; runDelay(m, rate, &c, nullptr); std::printf("         %6.1f kHz %-10s: %5.2f %%\n", rate / 1000.0, names[m], c); }
+    }
+
     // Stereo: whole plugin output with each reverb algorithm, before (wide reverb, no safety)
     // and after (defaults). Source: chord (instrument) or mono pad on the track input (FX).
     {
@@ -633,6 +679,7 @@ int main(int argc, char** argv)
         { "process_granular", 1, 2, false, 1280, 800, 1, { { "processModule", 1 } } },
         { "process_reverb", 1, 2, false, 1280, 800, 1, { { "processModule", 2 } } },
         { "process_stereo", 1, 2, false, 1280, 800, 1, { { "processModule", 4 } } },
+        { "process_delay", 1, 2, false, 1280, 800, 1, { { "processModule", 3 } } },
         { "stereo_lr_docked", 1, 1, false, 1280, 800, 1, { { "vs_display", 1 } } },
         { "scope_mono_falling", 0, 0, false, 1280, 800, 1, { { "sc_view", 4 }, { "sc_time", 8.0 }, { "sc_trig", 2 }, { "sc_level", 0.2 }, { "sc_gain", 2.0 } } },
     };

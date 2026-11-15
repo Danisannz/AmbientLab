@@ -101,6 +101,13 @@ inline constexpr std::string_view on = "rv.on", algo = "rv.algo", decay = "rv.de
     feedback = "rv.feedback", shimmer = "rv.shimmer", mix = "rv.mix", freeze = "rv.freeze", width = "rv.width";
 }
 
+namespace dl
+{
+inline constexpr std::string_view on = "dl.on", mode = "dl.mode", time = "dl.time", sync = "dl.sync", division = "dl.division",
+    feedback = "dl.feedback", hp = "dl.hp", lp = "dl.lp", modDepth = "dl.modDepth", modRate = "dl.modRate",
+    drive = "dl.drive", width = "dl.width", pitch = "dl.pitch", mix = "dl.mix";
+}
+
 namespace out
 {
 inline constexpr std::string_view width = "out.width", bassMono = "out.bassMono", bassMonoHz = "out.bassMonoHz",

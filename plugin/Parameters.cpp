@@ -1,3 +1,4 @@
+#include <ambient/dsp/Delay.h>
 #include "Parameters.h"
 #include <ambient/ParamIDs.h>
 
@@ -233,6 +234,26 @@ Layout createParameterLayout()
         layout.add(std::make_unique<juce::AudioParameterFloat>(P5(so::floor), "Correlation Floor", juce::NormalisableRange<float> { -0.5f, 0.5f, 0.01f }, 0.0f,
             juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float x, int) { return (x >= 0 ? "+" : "") + juce::String(x, 2); })));
         layout.add(std::make_unique<juce::AudioParameterBool>(P5(so::monoCheck), "Mono Check", false));
+
+        // ---- Delay (Stage 6) ----
+        namespace d = ids::dl;
+        auto P6 = [&](std::string_view i) { return PID { id(i), 6 }; };
+        juce::StringArray divs; for (int i = 0; i < ambient::dsp::Delay::kNumDivisions; ++i) divs.add(ambient::dsp::Delay::divisionName(i));
+        layout.add(std::make_unique<juce::AudioParameterBool>(P6(d::on), "Delay On", false));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(P6(d::mode), "Delay Type",
+            juce::StringArray { "Tape", "BBD", "Digital", "Ping-Pong", "Multi-Tap", "Reverse", "Pitch", "Granular" }, 0));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::time), "Delay Time", logRange(1.0f, 4000.0f), 375.0f, msAttr));
+        layout.add(std::make_unique<juce::AudioParameterBool>(P6(d::sync), "Delay Sync", true));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(P6(d::division), "Delay Division", divs, 7));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::feedback), "Delay Feedback", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.45f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::hp), "Delay Low Cut", logRange(20.0f, 2000.0f), 80.0f, hzAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::lp), "Delay High Cut", logRange(500.0f, 20000.0f), 9000.0f, hzAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::modDepth), "Delay Mod Depth", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.2f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::modRate), "Delay Mod Rate", logRange(0.05f, 10.0f), 0.6f, hzAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::drive), "Delay Drive", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.2f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::width), "Delay Width", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.7f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::pitch), "Delay Pitch", juce::NormalisableRange<float> { -24.0f, 24.0f, 0.01f }, 12.0f, oct));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::mix), "Delay Mix", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.3f, pctAttr));
     }
 
     return layout;

@@ -69,6 +69,10 @@ AmbientProcessor::AmbientProcessor()
     for (auto g : { rid::on, rid::algo, rid::decay, rid::predelay, rid::size, rid::diffusion, rid::damping,
                     rid::early, rid::mod, rid::feedback, rid::shimmer, rid::mix, rid::freeze, rid::width })
         rvRaw.push_back(raw(g));
+    namespace did = ids::dl;
+    for (auto g : { did::on, did::mode, did::time, did::sync, did::division, did::feedback, did::hp, did::lp,
+                    did::modDepth, did::modRate, did::drive, did::width, did::pitch, did::mix })
+        dlRaw.push_back(raw(g));
     namespace oid = ids::out;
     for (auto g : { oid::width, oid::bassMono, oid::bassMonoHz, oid::safety, oid::floor, oid::monoCheck })
         outRaw.push_back(raw(g));
@@ -84,6 +88,19 @@ void AmbientProcessor::readReverbParams()
     p.early = v(7); p.modulation = v(8); p.feedback = v(9); p.shimmer = v(10); p.mix = v(11);
     p.freeze = v(12) > 0.5f; p.width = v(13);
     reverb.setParams(p);
+}
+
+void AmbientProcessor::readDelayParams()
+{
+    using D = ambient::dsp::Delay;
+    D::Params p;
+    auto v = [this](size_t i) { return dlRaw[i]->load(); };
+    p.on = v(0) > 0.5f;
+    p.mode = D::Mode(juce::jlimit(0, D::kNumModes - 1, juce::roundToInt(v(1))));
+    p.timeMs = v(3) > 0.5f ? D::syncedMs(juce::roundToInt(v(4)), hostBpm) : v(2);
+    p.feedback = v(5); p.hpHz = v(6); p.lpHz = v(7); p.modDepth = v(8); p.modRate = v(9);
+    p.drive = v(10); p.width = v(11); p.pitch = v(12); p.mix = v(13);
+    delay.setParams(p);
 }
 
 void AmbientProcessor::readStereoParams()
@@ -171,6 +188,8 @@ void AmbientProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     reverb.prepare(sampleRate, samplesPerBlock);   // delay lines sized for size x2 at this rate, allocated here only
     readStereoParams();
     stereoSafety.prepare(sampleRate);
+    readDelayParams();
+    delay.prepare(sampleRate, samplesPerBlock);    // 8 s stereo buffer, allocated here only
     for (auto* s : { &masterGain, &inputGain, &sourceMix }) s->prepare(sampleRate, 20.0f);
     masterGain.reset(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));
     inputGain.reset (juce::Decibels::decibelsToGain(pInputGain->load(),  -60.0f));
@@ -314,9 +333,15 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         juce::FloatVectorOperations::add(intR, sR, n);
     }
 
-    // ---- 3. Processing chain (fixed order until the Stage 9 router): granular -> reverb ----
+    // ---- 3. Processing chain (fixed order until the Stage 9 router): granular -> delay -> reverb ----
     readGranularParams();
     granular.process(intL, intR, n);
+    if (auto* ph = getPlayHead())                  // host tempo for synced delay (fallback 120 BPM)
+        if (const auto pos = ph->getPosition())
+            if (const auto bpm = pos->getBpm(); bpm.hasValue() && *bpm > 1.0)
+                hostBpm = *bpm;
+    readDelayParams();
+    delay.process(intL, intR, n);
     readReverbParams();
     reverb.process(intL, intR, n);
 

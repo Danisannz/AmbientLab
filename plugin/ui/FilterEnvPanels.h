@@ -87,4 +87,24 @@ private:
     float corrIn = 1, corrOut = 1, midDb = -120, sideDb = -120, corrDb = 0;
     bool anti = false;
 };
+
+/** Delay module (Stage 6). Time or Division is active depending on Sync; Pitch only in Pitch mode. */
+class DelayPanel : public juce::Component, private juce::Timer
+{
+public:
+    explicit DelayPanel(juce::AudioProcessorValueTreeState&);
+    ~DelayPanel() override { stopTimer(); }
+    void resized() override;
+    void paint(juce::Graphics&) override;
+    juce::Button& getPowerButton() noexcept { return power; }
+private:
+    void timerCallback() override;
+    juce::AudioProcessorValueTreeState& state;
+    BypassButton power { "Delay" };
+    PillToggle sync { "Sync", theme::lime };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerAtt, syncAtt;
+    std::unique_ptr<ParamSegment> mode;
+    std::vector<std::unique_ptr<RotaryKnob>> time, tone, out;
+    RotaryKnob *timeK = nullptr, *divK = nullptr, *pitchK = nullptr;
+};
 } // namespace ambient::ui

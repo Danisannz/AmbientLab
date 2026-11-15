@@ -80,6 +80,7 @@ private:
     std::unique_ptr<ambient::ui::GranularPanel> granularPanel;
     std::unique_ptr<ambient::ui::ReverbPanel> reverbPanel;
     std::unique_ptr<ambient::ui::StereoPanel> stereoPanel;
+    std::unique_ptr<ambient::ui::DelayPanel> delayPanel;
     ambient::ui::SegmentedControl processSel { { "SIDECHAIN", "GRANULAR", "REVERB", "DELAY", "STEREO", "ROUTING" } };
     std::vector<ambient::ui::ModuleCard*> processCards;
     ambient::ui::BypassButton bypassSynth { "Synth" };

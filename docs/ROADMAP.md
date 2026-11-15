@@ -12,10 +12,11 @@ placeholders show the stage number; no control appears before its engine exists.
 | 3 | Multimode filter (LP24/LP12/BP/HP12/HP24/Notch, resonance, drive, env/key/velocity) + amp and mod ADSR (mod -> cutoff, pitch) | Done (branch) |
 | 4 | Granular engine: 10 s buffer, freeze, 64-grain pool, size/density/position/scatter, pitch +-24 st + random, reverse probability, 5 windows, stereo spread, stable feedback, mix; processes synth (instrument) or track input (FX) | Done (branch) |
 | 5 | Reverb: 7 independent algorithms (Hall/Room/Cathedral 8-line FDN with per-line RT60 gains, Dattorro plate, dispersive spring, octave-up shimmer, limited infinite), decay, pre-delay, size, diffusion, damping, early reflections, modulation, regenerative feedback, freeze, mix. Zero latency | Done (branch). 0.5-1.6 % of one core at 48 kHz - see REVERB.md |
-| 6 | Delay algorithms | Next |
-| 6 | Four LFOs + 32-slot modulation matrix | Planned |
-| 7 | Step sequencer | Planned |
-| 8 | Flexible routing + stereo engine | Planned |
+| 6 | Delay: tape, BBD, digital, ping-pong, multi-tap, reverse, pitch, granular; host sync (15 divisions), feedback, low/high cut, drive, modulation, width, mix. Zero latency | Done (branch) - see DELAY.md |
+| ST | Stereo safety: reverb width + mono bass, output bass mono / width / correlation floor / mono check, monitor | Done (branch) - see STEREO.md |
+| 7 | Four LFOs + 32-slot modulation matrix | Next |
+| 8 | Step sequencer | Planned |
+| 9 | Flexible routing (serial / parallel), presets | Planned |
 | 10 | Presets, optimization, validation | Planned |
 
 ## Stage 6 - modulation: sources already prepared

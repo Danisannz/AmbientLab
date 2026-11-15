@@ -312,4 +312,83 @@ void StereoPanel::paint(juce::Graphics& gr)
     line("SIDE CORRECTION", corrDb > 0.05f ? "-" + juce::String(corrDb, 1) + " dB" : juce::String("none"), corrDb > 0.05f ? uvBright : textDim);
     if (anti) line("WARNING", "ANTI-PHASE CONTENT DETECTED", juce::Colour(0xffff4d6d));
 }
+
+namespace dl = ambient::ids::dl;
+
+DelayPanel::DelayPanel(juce::AudioProcessorValueTreeState& s) : state(s)
+{
+    power.setLitWhenOn(true);
+    power.setTooltip("Delay on/off");
+    powerAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(s, id(dl::on), power);
+    addAndMakeVisible(sync);
+    sync.setTooltip("Sync the delay time to the host tempo (120 BPM when the host sends none)");
+    syncAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(s, id(dl::sync), sync);
+    if (auto* p = s.getParameter(id(dl::mode)))
+    {
+        mode = std::make_unique<ParamSegment>(*p, juce::StringArray { "TAPE", "BBD", "DIGITAL", "PING-PONG", "MULTI", "REVERSE", "PITCH", "GRAIN" });
+        addAndMakeVisible(*mode);
+    }
+    time.push_back(knob(*this, s, dl::time, "Time"));        timeK = time.back().get();
+    time.push_back(knob(*this, s, dl::division, "Division")); divK = time.back().get();
+    time.push_back(knob(*this, s, dl::feedback, "Feedback"));
+    tone.push_back(knob(*this, s, dl::hp, "Low cut"));
+    tone.push_back(knob(*this, s, dl::lp, "High cut"));
+    tone.push_back(knob(*this, s, dl::drive, "Drive"));
+    tone.push_back(knob(*this, s, dl::modDepth, "Mod"));
+    tone.push_back(knob(*this, s, dl::modRate, "Rate"));
+    out.push_back(knob(*this, s, dl::pitch, "Pitch", true)); pitchK = out.back().get();
+    pitchK->getSlider().setTooltip("Semitones per repeat (Pitch type only)");
+    out.push_back(knob(*this, s, dl::width, "Width"));
+    out.push_back(knob(*this, s, dl::mix, "Mix"));
+    timerCallback();
+    startTimerHz(10);
+}
+
+void DelayPanel::timerCallback()
+{
+    auto val = [this](std::string_view pid) { const auto* a = state.getRawParameterValue(id(pid)); return a ? a->load() : 0.0f; };
+    const bool synced = val(dl::sync) > 0.5f, pitchMode = juce::roundToInt(val(dl::mode)) == 6;
+    auto setActive = [](RotaryKnob* k, bool on) { if (k && k->isEnabled() != on) { k->setEnabled(on); k->setAlpha(on ? 1.0f : 0.35f); } };
+    setActive(timeK, ! synced);
+    setActive(divK, synced);
+    setActive(pitchK, pitchMode);
+}
+
+void DelayPanel::resized()
+{
+    auto r = getLocalBounds();
+    auto top = r.removeFromTop(30).withSizeKeepingCentre(r.getWidth(), 26);
+    sync.setBounds(top.removeFromLeft(96));
+    top.removeFromLeft(12);
+    if (mode) mode->setBounds(top.removeFromLeft(juce::jmin(600, top.getWidth())));
+    r.removeFromTop(10);
+    const int total = int(time.size() + tone.size() + out.size());
+    const int gapW = 18;
+    const int kw = juce::jmin(84, (r.getWidth() - 2 * gapW) / total);
+    const int d = juce::jlimit(36, 60, kw - 20);
+    auto row = r.withHeight(juce::jmin(r.getHeight(), RotaryKnob::heightFor(d, true) + 18)).withTrimmedTop(26);
+    for (auto* group : { &time, &tone, &out })
+    {
+        for (auto& k : *group) k->setBounds(row.removeFromLeft(kw));
+        row.removeFromLeft(gapW);
+    }
+}
+
+void DelayPanel::paint(juce::Graphics& gr)
+{
+    gr.setFont(caption(10.5f));
+    gr.setColour(textFaint);
+    auto label = [&](const std::vector<std::unique_ptr<RotaryKnob>>& ks, const char* t)
+    {
+        if (ks.empty()) return;
+        const auto a = ks.front()->getBounds(), b = ks.back()->getBounds();
+        gr.drawText(t, juce::Rectangle<int>(a.getX(), a.getY() - 18, b.getRight() - a.getX(), 14), juce::Justification::centredLeft);
+        gr.setColour(edge);
+        gr.drawHorizontalLine(a.getY() - 3, float(a.getX()), float(b.getRight()));
+        gr.setColour(textFaint);
+    };
+    label(time, "TIME / FEEDBACK");
+    label(tone, "TONE / MOTION");
+    label(out, "PITCH / OUTPUT");
+}
 } // namespace ambient::ui
