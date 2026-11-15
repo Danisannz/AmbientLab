@@ -5,6 +5,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "ui/Mascot.h"
+#include "ui/MascotArt.h"
 #include <ctime>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <algorithm>
@@ -367,10 +368,113 @@ static int runSelfTest()
     return failures == 0 ? 0 : 1;
 }
 
+// Mascot proposal sheet: current vs evolved design, sizes and expression states.
+static int renderMascotSheet(const juce::File& out, float scale)
+{
+    using namespace ambient::ui;
+    const int W = 1600, H = 1100;
+    juce::Image img(juce::Image::RGB, int(W * scale), int(H * scale), true);
+    juce::Graphics g(img);
+    g.addTransform(juce::AffineTransform::scale(scale));
+    g.fillAll(theme::bg);
+
+    auto title = [&](const juce::String& t, float x, float y)
+    {
+        g.setColour(theme::text); g.setFont(theme::heading(18.0f, false, 0.08f));
+        g.drawText(t, juce::Rectangle<float>(x, y, 700.0f, 24.0f), juce::Justification::centredLeft);
+    };
+    auto label = [&](const juce::String& t, juce::Rectangle<float> r)
+    {
+        g.setColour(theme::textDim); g.setFont(theme::body(13.0f));
+        g.drawFittedText(t, r.toNearestInt(), juce::Justification::centredTop, 2);
+    };
+    auto panel = [&](juce::Rectangle<float> r)
+    {
+        g.setColour(theme::panel); g.fillRoundedRectangle(r, 6.0f);
+        g.setColour(theme::edge); g.drawRoundedRectangle(r, 6.0f, 1.0f);
+    };
+
+    // Hero
+    panel({ 30, 30, 520, 1040 });
+    title("GLIM v2 - PROPOSAL", 50, 44);
+    MascotPose hero; hero.glow = 0.6f; hero.orb = 0.7f; hero.aura = 0.15f;
+    MascotArt::draw(g, { 60, 90, 460, 736 }, hero);
+    label("Sidechain active - lime details lit", { 50, 840, 480, 40 });
+    g.setColour(theme::textDim); g.setFont(theme::body(13.0f));
+    g.drawFittedText("Kept: purple pointed hat, glowing lime tip, pointed alien ears, dark face, purple/lime palette.\n"
+                     "New: crinkled hat with brim, band stitch and sparse embroidery; slit-pupil eyes with heavy lids;\n"
+                     "third-eye mark; bioluminescent cheek spots; wispy forest-spirit beard; robe with glowing trim;\n"
+                     "long three-fingered hands holding a patch cable (lives in the synth lab).",
+                     juce::Rectangle<int>(50, 880, 480, 120), juce::Justification::topLeft, 6);
+
+    // Before / after
+    panel({ 580, 30, 990, 330 });
+    title("BEFORE  /  AFTER", 600, 44);
+    Mascot::State old; old.orb = 0.6f; old.aura = 0.3f;
+    Mascot::draw(g, { 620, 80, 200, 240 }, old);
+    label("current (v1)", { 620, 322, 200, 20 });
+    MascotArt::draw(g, { 870, 80, 150, 240 }, hero);
+    label("proposed (v2)", { 845, 322, 200, 20 });
+
+    // Sizes
+    title("SIZES (same drawing, level of detail drops when small)", 1090, 44);
+    float x = 1100;
+    for (float h : { 160.0f, 96.0f, 64.0f, 40.0f, 24.0f })
+    {
+        const float w = h * MascotArt::kAspect;
+        g.setColour(theme::bgRaised); g.fillRoundedRectangle(juce::Rectangle<float>(x - 4, 300 - h - 4, w + 8, h + 8), 4.0f);
+        MascotArt::draw(g, { x, 300 - h, w, h }, hero);
+        label(juce::String(int(h)) + " px", { x - 20, 310, w + 40, 20 });
+        x += w + 26;
+    }
+
+    // Expressions
+    panel({ 580, 380, 990, 690 });
+    title("STATES - all driven by detector data", 600, 394);
+    struct S { const char* name; const char* desc; MascotPose p; };
+    MascotPose idle;  idle.lids = 0.42f; idle.orb = 0.35f;
+    MascotPose blink = idle; blink.eyeOpen = 0.1f;
+    MascotPose kick;  kick.lids = 0.25f; kick.pupil = 1.0f; kick.orb = 0.9f; kick.glow = 0.5f;
+    MascotPose strong; strong.surprise = 1.0f; strong.pupil = 0.2f; strong.orb = 1.0f; strong.glow = 0.7f; strong.hatTilt = -0.18f; strong.ears = 0.6f;
+    MascotPose active; active.lids = 0.3f; active.glow = 1.0f; active.orb = 0.6f; active.aura = 0.25f;
+    MascotPose gr;    gr.lids = 0.15f; gr.glow = 1.0f; gr.orb = 0.8f; gr.aura = 0.85f; gr.ears = 1.0f;
+    MascotPose none;  none.lids = 0.62f; none.orb = 0.2f;
+    const S states[] = {
+        { "Idle", "breathing, periodic blink", idle },
+        { "Idle - blink", "every ~5 s (deterministic)", blink },
+        { "Kick", "pupils pulse, tip flashes", kick },
+        { "Strong kick", "surprised: wide eyes, 'o' mouth, hat jolts", strong },
+        { "Sidechain active", "lime details illuminate", active },
+        { "High reduction", "aura + ears perk with GR", gr },
+        { "No signal", "relaxed, heavy lids", none },
+    };
+    for (int i = 0; i < 7; ++i)
+    {
+        const float cx = 600.0f + float(i % 4) * 240.0f, cy = 440.0f + float(i / 4) * 310.0f;
+        MascotArt::draw(g, { cx + 40, cy, 150, 240 }, states[i].p);
+        g.setColour(theme::text); g.setFont(theme::heading(14.0f, false, 0.06f));
+        g.drawText(juce::String(states[i].name).toUpperCase(), juce::Rectangle<float>(cx, cy + 244, 230, 18), juce::Justification::centred);
+        label(states[i].desc, { cx, cy + 264, 230, 36 });
+    }
+
+    // In context: header strip at 1x
+    g.setColour(theme::bgRaised); g.fillRoundedRectangle(juce::Rectangle<float>(1560 - 230, 760 + 220, 220, 70), 4.0f);
+    MascotArt::draw(g, { 1560 - 230 + 80, 760 + 222, 66 * MascotArt::kAspect * 1.0f + 20, 66 }, active);
+    label("header size, in context", { 1560 - 230, 760 + 292, 220, 20 });
+
+    out.deleteFile();
+    juce::FileOutputStream os(out);
+    juce::PNGImageFormat().writeImageToStream(img, os);
+    std::printf("wrote %s\n", out.getFullPathName().toRawUTF8());
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && juce::String(argv[1]) == "--selftest") return runSelfTest();
+    if (argc > 2 && juce::String(argv[1]) == "--mascot-sheet")
+        return renderMascotSheet(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]), argc > 3 ? float(std::atof(argv[3])) : 1.0f);
     if (argc > 1 && juce::String(argv[1]) == "--bench") return runBenchmark(argc > 2 ? juce::String(argv[2]) : juce::String());
     const juce::File outDir(argc > 1 ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[1])
                                      : juce::File::getCurrentWorkingDirectory().getChildFile("snapshots"));
