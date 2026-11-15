@@ -56,6 +56,22 @@ AmbientProcessor::AmbientProcessor()
     for (auto g : { f::on, f::mode, f::cutoff, f::reso, f::drive, f::env, f::key, f::vel,
                     e::ampA, e::ampD, e::ampS, e::ampR, e::modA, e::modD, e::modS, e::modR, e::modPitch })
         oscRaw.push_back(raw(g));
+
+    namespace gid = ids::gr;
+    for (auto g : { gid::on, gid::size, gid::density, gid::position, gid::scatter, gid::pitch, gid::pitchRandom,
+                    gid::reverse, gid::window, gid::spread, gid::feedback, gid::mix, gid::freeze })
+        grRaw.push_back(raw(g));
+}
+
+void AmbientProcessor::readGranularParams()
+{
+    ambient::dsp::Granular::Params p;
+    auto v = [this](size_t i) { return grRaw[i]->load(); };
+    p.on = v(0) > 0.5f; p.sizeMs = v(1); p.density = v(2); p.positionMs = v(3); p.scatter = v(4);
+    p.pitch = v(5); p.pitchRandom = v(6); p.reverse = v(7);
+    p.window = ambient::dsp::Granular::Window(juce::jlimit(0, 4, juce::roundToInt(v(8))));
+    p.spread = v(9); p.feedback = v(10); p.mix = v(11); p.freeze = v(12) > 0.5f;
+    granular.setParams(p);
 }
 
 void AmbientProcessor::readSynthParams()
@@ -119,6 +135,7 @@ void AmbientProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     loadMeasurer.reset(sampleRate, samplesPerBlock);
     currentSampleRate.store(sampleRate);
     synth.prepare(sampleRate, samplesPerBlock);
+    granular.prepare(sampleRate, samplesPerBlock); // 10 s stereo buffer, allocated here only
     for (auto* s : { &masterGain, &inputGain, &sourceMix }) s->prepare(sampleRate, 20.0f);
     masterGain.reset(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));
     inputGain.reset (juce::Decibels::decibelsToGain(pInputGain->load(),  -60.0f));
@@ -244,11 +261,15 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         juce::FloatVectorOperations::add(intR, sR, n);
     }
 
-    // ---- 3. Frequency sidechain: attenuates the INTERNAL signal only -----------
+    // ---- 3. Processing chain (fixed order until the Stage 9 router): granular ----
+    readGranularParams();
+    granular.process(intL, intR, n);
+
+    // ---- 4. Frequency sidechain: attenuates the INTERNAL signal only -----------
     readSidechainParams();
     ducker.process(intL, intR, hasRef ? refL : nullptr, hasRef ? refR : nullptr, n);
 
-    // ---- 4. Output -------------------------------------------------------------
+    // ---- 5. Output -------------------------------------------------------------
     masterGain.setTarget(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));
     float peak = 0.0f, pkL = 0.0f, pkR = 0.0f, pkIn = 0.0f;
     float* L = buffer.getWritePointer(0);

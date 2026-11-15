@@ -27,3 +27,22 @@ private:
     std::vector<std::unique_ptr<RotaryKnob>> amp, mod;
 };
 } // namespace ambient::ui
+
+namespace ambient::ui
+{
+/** Granular module (Stage 4). */
+class GranularPanel : public juce::Component
+{
+public:
+    explicit GranularPanel(juce::AudioProcessorValueTreeState&);
+    void resized() override;
+    void paint(juce::Graphics&) override;
+    juce::Button& getPowerButton() noexcept { return power; }
+private:
+    BypassButton power { "Granular" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerAtt, freezeAtt;
+    PillToggle freeze { "Freeze", theme::uvBright };
+    std::unique_ptr<ParamSegment> window;
+    std::vector<std::unique_ptr<RotaryKnob>> grain, pitch, out;
+};
+} // namespace ambient::ui

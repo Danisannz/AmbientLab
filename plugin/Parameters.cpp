@@ -184,6 +184,23 @@ Layout createParameterLayout()
         layout.add(std::make_unique<juce::AudioParameterFloat>(P3(e::modS), "Mod Sustain", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.2f, pctAttr));
         envTime(e::modR, "Mod Release", 1.0f, 30000.0f, 900.0f);
         layout.add(std::make_unique<juce::AudioParameterFloat>(P3(e::modPitch), "Mod Env > Pitch", juce::NormalisableRange<float> { -24.0f, 24.0f, 0.01f }, 0.0f, oct));
+
+        // ---- Granular (Stage 4) ----
+        namespace g = ids::gr;
+        layout.add(std::make_unique<juce::AudioParameterBool>(P3(g::on), "Granular On", false));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::size), "Grain Size", logRange(5.0f, 1000.0f), 120.0f, msAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::density), "Grain Density", logRange(0.5f, 200.0f), 12.0f,
+            juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float x, int) { return juce::String(x, x < 10.0f ? 1 : 0) + " /s"; })));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::position), "Grain Position", logRange(1.0f, 9000.0f), 250.0f, msAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::scatter), "Grain Scatter", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.2f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::pitch), "Grain Pitch", juce::NormalisableRange<float> { -24.0f, 24.0f, 0.01f }, 0.0f, oct));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::pitchRandom), "Grain Pitch Random", juce::NormalisableRange<float> { 0.0f, 12.0f, 0.01f }, 0.0f, oct));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::reverse), "Grain Reverse", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(P3(g::window), "Grain Window", juce::StringArray { "Hann", "Gauss", "Tukey", "Triangle", "Decay" }, 0));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::spread), "Grain Spread", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.5f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::feedback), "Grain Feedback", juce::NormalisableRange<float> { 0.0f, 0.95f }, 0.0f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::mix), "Grain Mix", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.5f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterBool>(P3(g::freeze), "Grain Freeze", false));
     }
 
     return layout;

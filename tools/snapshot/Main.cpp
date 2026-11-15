@@ -527,6 +527,7 @@ int main(int argc, char** argv)
         { "large_2560x1600", 1, 2, false, 2560, 1600 },
         { "small_expanded_scope", 0, 0, true, 960, 600 },
         { "small_stereo", 2, 1, false, 960, 600 },
+        { "process_granular", 1, 2, false, 1280, 800, 1, { { "processModule", 1 } } },
         { "stereo_lr_docked", 1, 1, false, 1280, 800, 1, { { "vs_display", 1 } } },
         { "scope_mono_falling", 0, 0, false, 1280, 800, 1, { { "sc_view", 4 }, { "sc_time", 8.0 }, { "sc_trig", 2 }, { "sc_level", 0.2 }, { "sc_gain", 2.0 } } },
     };

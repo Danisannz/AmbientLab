@@ -176,23 +176,44 @@ void AmbientEditor::buildPages()
     };
 #endif
 
-    // ---- PROCESS: Frequency Sidechain + upcoming processors -------------------
+    // ---- PROCESS: one full-size module at a time (selector) -------------------
     auto& process = pages[1];
-    process.cols = 4; process.rows = 2;
-    process.rowWeights = { 2.6f, 1.0f };
-    auto& sc = process.add("Frequency sidechain", Glyph::Filter, 0, 0, 4);
+    process.cols = 1; process.rows = 1;
+    auto& sc = process.add("Frequency sidechain", Glyph::Filter, 0, 0);
     sidechain = std::make_unique<SidechainPanel>(proc, settings);
     sc.addAndMakeVisible(*sidechain);
     sc.addAndMakeVisible(sidechain->getEnableButton());
     sc.setHeaderLedVisible(false);
-    process.add("Granular", Glyph::Grains, 0, 1).setPlaceholder("Real-time granular engine", 4);
-    process.add("Reverb", Glyph::Reverb, 1, 1).setPlaceholder("Seven reverb algorithms", 5);
-    process.add("Delay", Glyph::Delay, 2, 1).setPlaceholder("Eight delay models", 6);
-    process.add("Routing", Glyph::Stereo, 3, 1).setPlaceholder("Serial / parallel / flexible routing", 9);
-    process.layoutContents = [this, &sc]
+    auto& gran = process.add("Granular", Glyph::Grains, 0, 0);
+    granularPanel = std::make_unique<GranularPanel>(proc.apvts);
+    gran.addAndMakeVisible(*granularPanel);
+    gran.addAndMakeVisible(granularPanel->getPowerButton());
+    gran.setHeaderLedVisible(false);
+    auto& rev = process.add("Reverb", Glyph::Reverb, 0, 0);
+    rev.setPlaceholder("Shimmer, hall, plate, spring, room, cathedral and infinite reverbs", 5);
+    auto& dly = process.add("Delay", Glyph::Delay, 0, 0);
+    dly.setPlaceholder("Tape, BBD, digital, ping-pong, multi-tap, reverse, pitch and granular delays", 6);
+    auto& rout = process.add("Routing", Glyph::Stereo, 0, 0);
+    rout.setPlaceholder("Serial / parallel / flexible routing with safe feedback", 9);
+    processCards = { &sc, &gran, &rev, &dly, &rout };
+    process.addAndMakeVisible(processSel);
+    processSel.onChange = [this](int i)
     {
+        settings.set("processModule", i);
+        for (size_t k = 0; k < processCards.size(); ++k) processCards[k]->setVisible(int(k) == i);
+    };
+    processSel.setSelected(juce::jlimit(0, 4, int(settings.get("processModule", 0))), false);
+    processSel.onChange(processSel.getSelected());
+    process.layoutContents = [this, &process, &sc, &gran]
+    {
+        auto r = process.getLocalBounds();
+        processSel.setBounds(r.removeFromTop(30).withWidth(juce::jmin(r.getWidth(), 560)));
+        r.removeFromTop(6);
+        for (auto* c : processCards) c->setBounds(r);
         sidechain->setBounds(sc.getContentBounds().withTrimmedTop(4));
         sidechain->getEnableButton().setBounds(sc.getHeaderControlBounds());
+        granularPanel->setBounds(gran.getContentBounds().withTrimmedTop(4));
+        granularPanel->getPowerButton().setBounds(gran.getHeaderControlBounds());
     };
 
     // ---- MODULATION ------------------------------------------------------------
@@ -237,7 +258,7 @@ void AmbientEditor::timerCallback()
     const bool fresh = hub.update(dt);
     analyzer->tick(fresh, dt);
     header->tick(dt);
-    if (sidechain) sidechain->tick(dt, pages[1].isVisible());
+    if (sidechain) sidechain->tick(dt, pages[1].isVisible() && processSel.getSelected() == 0);
 }
 
 void AmbientEditor::paint(juce::Graphics& g)
@@ -291,7 +312,6 @@ void AmbientEditor::resized()
        #if AMBIENT_IS_INSTRUMENT
         pages[0].rowWeights = shortLayout ? std::vector<float> { 1.5f, 1.0f } : std::vector<float> { 1.7f, 1.0f };
        #endif
-        pages[1].rowWeights = shortLayout ? std::vector<float> { 1.0f, 0.12f } : std::vector<float> { 2.6f, 1.0f };
         for (auto& pg : pages) { pg.scale = s; pg.setBounds(r); pg.resized(); }
     }
 }

@@ -86,5 +86,13 @@ inline constexpr std::string_view modA = "env.mod.a", modD = "env.mod.d", modS =
 inline constexpr std::string_view modPitch = "env.mod.pitch";
 }
 
+// Granular engine (Stage 4)
+namespace gr
+{
+inline constexpr std::string_view on = "gr.on", size = "gr.size", density = "gr.density", position = "gr.position",
+    scatter = "gr.scatter", pitch = "gr.pitch", pitchRandom = "gr.pitchRandom", reverse = "gr.reverse",
+    window = "gr.window", spread = "gr.spread", feedback = "gr.feedback", mix = "gr.mix", freeze = "gr.freeze";
+}
+
 inline constexpr int kMaxVoices = 8;
 } // namespace ambient::ids
