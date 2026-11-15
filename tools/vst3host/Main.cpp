@@ -126,8 +126,20 @@ int main(int argc, char** argv)
     if (instrument) check(p->getBusCount(true) == 1, "instrument: the sidechain is the only input bus");
 
     // What a DAW reads: VST3 bus type of every input bus (kMain / kAux).
-    if (auto* v3 = p->getVST3Client())
-        if (auto* comp = v3->getIComponentPtr())
+    Steinberg::Vst::IComponent* comp = nullptr;
+   #if JUCE_MAJOR_VERSION >= 9
+    if (auto* v3 = p->getVST3Client()) comp = v3->getIComponentPtr();
+   #else
+    struct Visitor : juce::ExtensionsVisitor
+    {
+        Steinberg::Vst::IComponent* c = nullptr;
+        void visitVST3Client(const VST3Client& v) override { c = static_cast<Steinberg::Vst::IComponent*>(v.getIComponentPtr()); }
+    } visitor;
+    p->getExtensions(visitor);
+    comp = visitor.c;
+   #endif
+    check(comp != nullptr, "VST3 component interface reachable");
+    if (comp != nullptr)
         {
             const auto count = comp->getBusCount(Steinberg::Vst::kAudio, Steinberg::Vst::kInput);
             for (Steinberg::int32 i = 0; i < count; ++i)
