@@ -2,3 +2,6 @@ build/
 .vs/
 *.user
 build-snap/
+
+# any local build tree
+build*/
