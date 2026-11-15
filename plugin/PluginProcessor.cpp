@@ -31,12 +31,43 @@ AmbientProcessor::AmbientProcessor()
     : AudioProcessor(makeBuses()),
       apvts(*this, nullptr, "AmbientLab", createParameterLayout())
 {
-    pMasterGain  = apvts.getRawParameterValue(id(ids::masterGain));
-    pInputGain   = apvts.getRawParameterValue(id(ids::inputGain));
+    // modulation destinations first: every PRef to a destination reads modValue[k]
+    for (int k = 0; k < ambient::moddest::kNumDestinations; ++k)
+    {
+        const auto did = ambient::moddest::kDestinations[size_t(k)];
+        const juce::String sid(did.data(), did.size());
+        destRaw[size_t(k)] = apvts.getRawParameterValue(sid);
+        destParam[size_t(k)] = apvts.getParameter(sid);
+        jassert(destRaw[size_t(k)] != nullptr && destParam[size_t(k)] != nullptr);
+        modValue[size_t(k)] = destRaw[size_t(k)] ? destRaw[size_t(k)]->load() : 0.0f;
+    }
+    auto rawId = [this](const juce::String& sid)
+    {
+        PRef r { apvts.getRawParameterValue(sid), nullptr };
+        for (int k = 0; k < ambient::moddest::kNumDestinations; ++k)
+        {
+            const auto d = ambient::moddest::kDestinations[size_t(k)];
+            if (sid == juce::String(d.data(), d.size())) { r.mod = &modValue[size_t(k)]; break; }
+        }
+        return r;
+    };
+    auto raw = [&rawId](std::string_view i) { return rawId(id(i)); };
+    pMasterGain  = raw(ids::masterGain);
+    pInputGain   = raw(ids::inputGain);
     pSourceMix   = apvts.getRawParameterValue(id(ids::sourceMix));
     pBypassSynth = apvts.getRawParameterValue(id(ids::bypassSynth));
 
-    auto raw = [this](std::string_view i) { return apvts.getRawParameterValue(id(i)); };
+    for (int l = 0; l < 4; ++l)
+    {
+        const juce::String pre = "lfo." + juce::String(l + 1) + ".";
+        for (auto f : { "wave", "rate", "sync", "division", "phase", "shape", "smooth", "unipolar", "retrig" })
+            lfoRaw[size_t(l)].push_back(rawId(pre + f));
+        for (int k = 1; k <= 8; ++k) lfoRaw[size_t(l)].push_back(rawId(pre + "pt" + juce::String(k)));
+    }
+    for (int m = 1; m <= ambient::dsp::ModMatrix::kSlots; ++m)
+        for (auto f : { "src", "dst", "amt" })
+            mmRaw.push_back(apvts.getRawParameterValue("mm." + juce::String(m) + "." + f));
+    for (size_t i = 0; i < 8; ++i) macroRaw[i] = apvts.getRawParameterValue(id(ids::macros[i]));
     scParams.enable = raw(ids::sc::enable);       scParams.inputGain = raw(ids::sc::inputGain);
     scParams.sensitivity = raw(ids::sc::sensitivity); scParams.threshold = raw(ids::sc::threshold);
     scParams.depth = raw(ids::sc::depth);         scParams.mix = raw(ids::sc::mix);
@@ -51,7 +82,7 @@ AmbientProcessor::AmbientProcessor()
     namespace o = ids::osc;
     for (int i = 0; i < 2; ++i)
         for (int f = 0; f < 12; ++f)
-            oscRaw.push_back(apvts.getRawParameterValue(juce::String(o::oscId(i, o::OscField(f)))));
+            oscRaw.push_back(rawId(juce::String(o::oscId(i, o::OscField(f)))));
     for (auto g : { o::fm, o::pm, o::subOn, o::subWave, o::subOctave, o::subLevel, o::noiseOn, o::noiseType,
                     o::noiseLevel, o::drift, o::satMode, o::satDrive, o::satMix, o::velocity })
         oscRaw.push_back(raw(g));
@@ -186,6 +217,7 @@ void AmbientProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     stereoSafety.prepare(sampleRate);
     readDelayParams();
     delay.prepare(sampleRate, samplesPerBlock);    // 8 s stereo buffer, allocated here only
+    for (auto& l : lfos) l.prepare(sampleRate);
     for (auto* s : { &masterGain, &inputGain, &sourceMix }) s->prepare(sampleRate, 20.0f);
     masterGain.reset(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));
     inputGain.reset (juce::Decibels::decibelsToGain(pInputGain->load(),  -60.0f));
@@ -231,9 +263,73 @@ void AmbientProcessor::readSidechainParams()
 
 void AmbientProcessor::handleMidi(const juce::MidiMessage& m)
 {
-    if (m.isNoteOn())                                  synth.noteOn(m.getNoteNumber(), m.getFloatVelocity());
+    if (m.isNoteOn())
+    {
+        synth.noteOn(m.getNoteNumber(), m.getFloatVelocity());
+        midiVelocity = m.getFloatVelocity();
+        midiKey = juce::jlimit(-1.0f, 1.0f, float(m.getNoteNumber() - 60) / 48.0f);
+        noteRng = noteRng * 1664525u + 1013904223u;
+        midiRandom = float(int32_t(noteRng >> 8) - (1 << 23)) / float(1 << 23);
+        for (auto& l : lfos) l.retrigger();
+    }
     else if (m.isNoteOff())                            synth.noteOff(m.getNoteNumber());
     else if (m.isAllNotesOff() || m.isAllSoundOff())   synth.allNotesOff();
+    else if (m.isController() && m.getControllerNumber() == 1) midiWheel = float(m.getControllerValue()) / 127.0f;
+    else if (m.isChannelPressure())                    midiAftertouch = float(m.getChannelPressureValue()) / 127.0f;
+    else if (m.isAftertouch())                         midiAftertouch = float(m.getAfterTouchValue()) / 127.0f;
+    else if (m.isPitchWheel())                         midiBend = juce::jlimit(-1.0f, 1.0f, float(m.getPitchWheelValue() - 8192) / 8191.0f);
+}
+
+void AmbientProcessor::updateModulation(int startSample, int numSamples) noexcept
+{
+    using namespace ambient;
+    // 1. LFOs (their own rate/shape may be modulated: read through PRef = previous sub-block's value)
+    const double sr = getSampleRate() > 0 ? getSampleRate() : 48000.0;
+    dsp::Lfo::Transport t;
+    t.playing = transportPlaying; t.bpm = hostBpm;
+    t.ppq = transportPpq + double(startSample) / sr * hostBpm / 60.0;
+    for (size_t l = 0; l < 4; ++l)
+    {
+        const auto& r = lfoRaw[l];
+        dsp::Lfo::Params p;
+        p.wave = dsp::Lfo::Wave(juce::jlimit(0, dsp::Lfo::kNumWaves - 1, juce::roundToInt(r[0].load())));
+        p.rateHz = r[1].load(); p.sync = r[2].load() > 0.5f; p.division = juce::roundToInt(r[3].load());
+        p.phase = r[4].load(); p.shape = r[5].load(); p.smooth = r[6].load();
+        p.unipolar = r[7].load() > 0.5f; p.retrigger = r[8].load() > 0.5f;
+        for (size_t k = 0; k < 8; ++k) p.custom[k] = r[9 + k].load();
+        lfos[l].setParams(p);
+        srcValue[size_t(modsrc::Lfo1) + l] = lfos[l].advance(numSamples, t);
+    }
+    // 2. Other sources
+    for (size_t i = 0; i < 8; ++i) srcValue[size_t(modsrc::Macro1) + i] = macroRaw[i]->load(std::memory_order_relaxed);
+    srcValue[modsrc::Velocity] = midiVelocity;  srcValue[modsrc::ModWheel] = midiWheel;
+    srcValue[modsrc::Aftertouch] = midiAftertouch; srcValue[modsrc::PitchBend] = midiBend;
+    srcValue[modsrc::NoteKey] = midiKey;        srcValue[modsrc::NoteRandom] = midiRandom;
+    for (int i = 0; i < 7; ++i) srcValue[size_t(modsrc::ScEnvelope + i)] = ducker.getModOutput(i);   // previous sub-block
+    srcValue[modsrc::None] = 0.0f;
+
+    // 3. Matrix
+    bool any = false;
+    for (int m = 0; m < dsp::ModMatrix::kSlots; ++m)
+    {
+        auto& sl = slots[size_t(m)];
+        sl.source = juce::roundToInt(mmRaw[size_t(m) * 3]->load(std::memory_order_relaxed));
+        sl.destination = juce::roundToInt(mmRaw[size_t(m) * 3 + 1]->load(std::memory_order_relaxed));
+        sl.amount = mmRaw[size_t(m) * 3 + 2]->load(std::memory_order_relaxed);
+        any = any || (sl.source > 0 && sl.destination > 0 && sl.amount != 0.0f);
+    }
+    if (any) dsp::ModMatrix::accumulate(slots, srcValue.data(), modsrc::kCount, modOffset.data(), moddest::kNumDestinations);
+    else modOffset.fill(0.0f);
+
+    // 4. Modulated destination values (normalised offset, clamped to the parameter range)
+    for (size_t k = 0; k < size_t(moddest::kNumDestinations); ++k)
+    {
+        const float v = destRaw[k]->load(std::memory_order_relaxed);
+        const float off = modOffset[k + 1];
+        if (off == 0.0f) { modValue[k] = v; continue; }
+        auto* prm = destParam[k];
+        modValue[k] = prm->convertFrom0to1(juce::jlimit(0.0f, 1.0f, prm->convertTo0to1(v) + off));
+    }
 }
 
 void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -305,49 +401,63 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
    #endif
     if (! hasMain) { juce::FloatVectorOperations::clear(intL, n); juce::FloatVectorOperations::clear(intR, n); }
 
-    // ---- 2. Synth: sample-accurate MIDI ---------------------------------------
+    // ---- 2. Transport (tempo, position) -----------------------------------------
+    transportPlaying = false;
+    if (auto* ph = getPlayHead())
+        if (const auto pos = ph->getPosition())
+        {
+            if (const auto bpm = pos->getBpm(); bpm.hasValue() && *bpm > 1.0) hostBpm = *bpm;   // fallback 120 BPM
+            transportPlaying = pos->getIsPlaying();
+            if (const auto ppq = pos->getPpqPosition(); ppq.hasValue()) transportPpq = *ppq;
+        }
+
+    // ---- 3. Control-rate loop: modulation -> synth (sample-accurate MIDI) -> chain ----
+    // Chain order (fixed until the Stage 9 router): synth/track -> granular -> delay -> reverb
+    //                                              -> frequency sidechain -> stereo safety.
     float* s = synthBuffer.getWritePointer(0);
     float* sR = synthBuffer.getWritePointer(1);
     juce::FloatVectorOperations::clear(s, n);
     juce::FloatVectorOperations::clear(sR, n);
-    readSynthParams();
-    int pos = 0;
     if (const int nm = midi.getNumEvents(); nm > 0)
         midiEventCount.fetch_add(uint32_t(nm), std::memory_order_relaxed);
-    for (const auto meta : midi)
-    {
-        const int at = juce::jlimit(0, n, meta.samplePosition);
-        synth.render(s, sR, pos, at);
-        pos = at;
-        handleMidi(meta.getMessage());
-    }
-    synth.render(s, sR, pos, n);
     const bool synthOn = pBypassSynth->load() < 0.5f && AMBIENT_IS_INSTRUMENT;
-    if (synthOn)
+    auto ev = midi.cbegin();
+    for (int start = 0; start < n; start += kControlBlock)
     {
-        juce::FloatVectorOperations::add(intL, s, n);
-        juce::FloatVectorOperations::add(intR, sR, n);
+        const int len = juce::jmin(kControlBlock, n - start), end = start + len;
+        updateModulation(start, len);
+
+        readSynthParams();
+        int pos = start;
+        for (; ev != midi.cend() && (*ev).samplePosition < end; ++ev)
+        {
+            const int at = juce::jlimit(pos, end, (*ev).samplePosition);
+            synth.render(s, sR, pos, at);
+            pos = at;
+            handleMidi((*ev).getMessage());
+        }
+        synth.render(s, sR, pos, end);
+        if (synthOn)
+        {
+            juce::FloatVectorOperations::add(intL + start, s + start, len);
+            juce::FloatVectorOperations::add(intR + start, sR + start, len);
+        }
+
+        readGranularParams();  granular.process(intL + start, intR + start, len);
+        readDelayParams();     delay.process(intL + start, intR + start, len);
+        readReverbParams();    reverb.process(intL + start, intR + start, len);
+        readSidechainParams();
+        ducker.process(intL + start, intR + start, hasRef ? refL + start : nullptr, hasRef ? refR + start : nullptr, len);
+        readStereoParams();    stereoSafety.process(intL + start, intR + start, len);
     }
+    for (; ev != midi.cend(); ++ev) handleMidi((*ev).getMessage());   // events past the block end
 
-    // ---- 3. Processing chain (fixed order until the Stage 9 router): granular -> delay -> reverb ----
-    readGranularParams();
-    granular.process(intL, intR, n);
-    if (auto* ph = getPlayHead())                  // host tempo for synced delay (fallback 120 BPM)
-        if (const auto pos = ph->getPosition())
-            if (const auto bpm = pos->getBpm(); bpm.hasValue() && *bpm > 1.0)
-                hostBpm = *bpm;
-    readDelayParams();
-    delay.process(intL, intR, n);
-    readReverbParams();
-    reverb.process(intL, intR, n);
-
-    // ---- 4. Frequency sidechain: attenuates the INTERNAL signal only -----------
-    readSidechainParams();
-    ducker.process(intL, intR, hasRef ? refL : nullptr, hasRef ? refR : nullptr, n);
-
-    // ---- 5. Stereo safety (bass mono, width, correlation floor), zero latency ----
-    readStereoParams();
-    stereoSafety.process(intL, intR, n);
+    // UI telemetry (lock-free)
+    for (size_t l = 0; l < 4; ++l) { lfoOut[l].store(lfos[l].value(), std::memory_order_relaxed); lfoPhaseOut[l].store(lfos[l].currentPhase(), std::memory_order_relaxed); }
+    for (size_t i = 0; i < size_t(ambient::modsrc::kCount); ++i) sourceOut[i].store(srcValue[i], std::memory_order_relaxed);
+    for (size_t m = 0; m < slots.size(); ++m)
+        slotOut[m].store(slots[m].source > 0 && slots[m].destination > 0 ? slots[m].amount * srcValue[size_t(juce::jlimit(0, ambient::modsrc::kCount - 1, slots[m].source))] : 0.0f,
+                         std::memory_order_relaxed);
 
     // ---- 6. Output -------------------------------------------------------------
     masterGain.setTarget(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));

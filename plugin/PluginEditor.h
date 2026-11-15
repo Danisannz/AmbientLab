@@ -5,6 +5,7 @@
 #include "ui/HeaderBar.h"
 #include "ui/SidechainPanel.h"
 #include "ui/FilterEnvPanels.h"
+#include "ui/ModulationPanels.h"
 #include "ui/UiSettings.h"
 #include "viz/VisualizerHub.h"
 
@@ -81,6 +82,8 @@ private:
     std::unique_ptr<ambient::ui::ReverbPanel> reverbPanel;
     std::unique_ptr<ambient::ui::StereoPanel> stereoPanel;
     std::unique_ptr<ambient::ui::DelayPanel> delayPanel;
+    std::array<std::unique_ptr<ambient::ui::LfoPanel>, 4> lfoPanels;
+    std::unique_ptr<ambient::ui::ModMatrixPanel> matrixPanel;
     ambient::ui::SegmentedControl processSel { { "SIDECHAIN", "GRANULAR", "REVERB", "DELAY", "STEREO", "ROUTING" } };
     std::vector<ambient::ui::ModuleCard*> processCards;
     ambient::ui::BypassButton bypassSynth { "Synth" };

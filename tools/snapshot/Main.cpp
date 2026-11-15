@@ -1,4 +1,5 @@
 #include "../../tests/StereoMetrics.h"
+#include "../../plugin/ModDestinations.h"
 // Renders the AmbientLab editor in several states to PNG, feeding it real audio
 // through processBlock so the analyzer shows live data.
 // Usage: AmbientSnapshot <outputDir> [scale]
@@ -478,6 +479,85 @@ static int runSelfTest()
             for (int m = 0; m < 8; ++m) { double c = 0; runDelay(m, rate, &c, nullptr); std::printf("         %6.1f kHz %-10s: %5.2f %%\n", rate / 1000.0, names[m], c); }
     }
 
+    // Modulation (Stage 7): LFO / macro / sidechain sources really move a destination through
+    // the whole plugin; 32 active slots stay cheap.
+    {
+        auto destIndex = [](const char* pid) { for (int k = 0; k < ambient::moddest::kNumDestinations; ++k) if (ambient::moddest::kDestinations[size_t(k)] == pid) return k + 1; return 0; };
+        auto render = [&](std::function<void(AmbientProcessor&)> setup, double seconds, std::vector<float>& env, double* cpu = nullptr, bool kicks = false)
+        {
+            AmbientProcessor p;
+            p.setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                        juce::AudioChannelSet::stereo()));
+            p.setRateAndBufferSizeDetails(sr, 512);
+            p.prepareToPlay(sr, 512);
+            setup(p);
+            const int ch = juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels(), 2);
+            juce::AudioBuffer<float> buf(ch, 512);
+            juce::MidiBuffer on, none; on.addEvent(juce::MidiMessage::noteOn(1, 57, 0.9f), 0);
+            const int blocks = int(sr * seconds / 512);
+            env.clear(); long t = 0; double t0 = 0;
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+               #if ! AMBIENT_IS_INSTRUMENT
+                for (int i = 0; i < 512; ++i) { const float x = 0.3f * float(std::sin(2 * kPi * 220.0 * double(t + i) / sr)); buf.setSample(0, i, x); buf.setSample(1, i, x); }
+               #endif
+                if (kicks)
+                {
+                    auto sc = p.getBusBuffer(buf, true, AmbientProcessor::kScBus);
+                    for (int c = 0; c < sc.getNumChannels(); ++c)
+                        for (int i = 0; i < 512; ++i) { const long k = (t + i) % 24000; sc.setSample(c, i, k < 2400 ? 0.9f * float(std::exp(-double(k) / 600.0) * std::sin(2 * kPi * 60.0 * double(k) / sr)) : 0.0f); }
+                }
+                if (b == blocks / 4) t0 = juce::Time::getMillisecondCounterHiRes();
+                p.processBlock(buf, b == 0 ? on : none);
+                t += 512;
+                env.push_back(buf.getRMSLevel(0, 0, 512));
+            }
+            if (cpu) *cpu = 100.0 * (juce::Time::getMillisecondCounterHiRes() - t0) / ((blocks - blocks / 4) * 512 * 1000.0 / sr);
+        };
+        auto spread = [](const std::vector<float>& e, size_t from) { float lo = 1e9f, hi = 0; for (size_t i = from; i < e.size(); ++i) { lo = std::min(lo, e[i]); hi = std::max(hi, e[i]); } return 20.0f * std::log10((hi + 1e-9f) / (lo + 1e-9f)); };
+        const int master = destIndex("global.masterGain");
+        std::vector<float> e0, e1;
+        render([&](AmbientProcessor&) {}, 3.0, e0);
+        render([&](AmbientProcessor& p) { setParam(p, "lfo.1.wave", 4.0f); setParam(p, "lfo.1.rate", 2.0f);
+                                          setParam(p, "mm.1.src", 1.0f); setParam(p, "mm.1.dst", float(master)); setParam(p, "mm.1.amt", -0.3f); }, 3.0, e1);
+        std::printf("       LFO1 (square 2 Hz) -> master gain: level swing %.1f dB (no modulation: %.1f dB)\n", spread(e1, 100), spread(e0, 100));
+        check(spread(e1, 100) > spread(e0, 100) + 10.0f, "LFO -> master gain modulates the output (vs the unmodulated note)");
+        // count square transitions = 2 per cycle -> ~2 Hz
+        int edges = 0; const float mid = 0.5f * (*std::max_element(e1.begin() + 100, e1.end()) + *std::min_element(e1.begin() + 100, e1.end()));
+        std::vector<size_t> edgeAt;
+        for (size_t i = 101; i < e1.size(); ++i) if ((e1[i] > mid) != (e1[i - 1] > mid)) { ++edges; edgeAt.push_back(i); }
+        if (std::getenv("AMBIENT_DEBUG_EDGES")) for (auto ea : edgeAt) std::printf("         edge at block %zu (%.3f s)\n", ea, double(ea) * 512.0 / sr);
+        // rate from the first to the last edge (whole half-periods), 512-sample block resolution
+        const double hz = edgeAt.size() >= 3 ? double(edgeAt.size() - 1) / 2.0 / (double(edgeAt.back() - edgeAt.front()) * 512.0 / sr) : 0.0;
+        std::printf("       LFO rate measured through the plugin: %.2f Hz (set 2.00)\n", hz);
+        check(std::abs(hz - 2.0) < 0.1, "LFO rate is reproduced through the plugin");
+
+        std::vector<float> m0, m1;
+        auto macroSetup = [&](float macro) { return [=, &setParam](AmbientProcessor& p) { setParam(p, "macro.1", macro);
+            setParam(p, "mm.1.src", 5.0f); setParam(p, "mm.1.dst", float(master)); setParam(p, "mm.1.amt", -0.4f); }; };
+        render(macroSetup(0.0f), 1.5, m0); render(macroSetup(1.0f), 1.5, m1);
+        const float dm = 20.0f * std::log10((m1.back() + 1e-9f) / (m0.back() + 1e-9f));
+        std::printf("       Macro 1 -> master gain: %.1f dB between macro 0 and 1\n", dm);
+        check(dm < -6.0f, "macro knob drives its destination");
+
+        std::vector<float> k0, k1;
+        render([&](AmbientProcessor&) {}, 3.0, k0, nullptr, true);
+        render([&](AmbientProcessor& p) { setParam(p, "sc.enable", 0.0f);
+                                          setParam(p, "mm.1.src", 20.0f); setParam(p, "mm.1.dst", float(master)); setParam(p, "mm.1.amt", -0.6f); }, 3.0, k1, nullptr, true);
+        std::printf("       SC transient -> master gain: swing %.1f dB with kicks\n", spread(k1, 100));
+        check(spread(k1, 100) > 3.0f, "sidechain transient works as a modulation source");
+
+        double cpu0 = 0, cpu32 = 0; std::vector<float> tmp;
+        render([&](AmbientProcessor&) {}, 3.0, tmp, &cpu0);
+        render([&](AmbientProcessor& p) { for (int m = 1; m <= 32; ++m) { const juce::String pre = "mm." + juce::String(m) + ".";
+                    setParam(p, pre + "src", float(1 + (m % 4))); setParam(p, pre + "dst", float(1 + (m * 7) % ambient::moddest::kNumDestinations)); setParam(p, pre + "amt", 0.05f); } }, 3.0, tmp, &cpu32);
+        std::printf("       processBlock with 0 / 32 active mod slots: %.2f %% / %.2f %%\n", cpu0, cpu32);
+        check(cpu32 < cpu0 + 3.0, "32 active modulation slots cost < 3 % of a core");
+        bool finite = true; for (float v : tmp) finite = finite && std::isfinite(v);
+        check(finite, "32 random modulation routings stay finite");
+    }
+
     // Stereo: whole plugin output with each reverb algorithm, before (wide reverb, no safety)
     // and after (defaults). Source: chord (instrument) or mono pad on the track input (FX).
     {
@@ -654,6 +734,16 @@ int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc > 1 && juce::String(argv[1]) == "--selftest") return runSelfTest();
+    if (argc > 1 && juce::String(argv[1]) == "--list-params")
+    {
+        AmbientProcessor p;
+        for (auto* prm : p.getParameters())
+            if (auto* r = dynamic_cast<juce::RangedAudioParameter*>(prm))
+                std::printf("%s\t%s\t%s\n", r->getParameterID().toRawUTF8(),
+                            dynamic_cast<juce::AudioParameterFloat*>(r) ? "float" : (dynamic_cast<juce::AudioParameterChoice*>(r) ? "choice" : "bool"),
+                            r->getName(64).toRawUTF8());
+        return 0;
+    }
     if (argc > 2 && juce::String(argv[1]) == "--mascot-sheet")
         return renderMascotSheet(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]), argc > 3 ? float(std::atof(argv[3])) : 1.0f);
     if (argc > 1 && juce::String(argv[1]) == "--bench") return runBenchmark(argc > 2 ? juce::String(argv[2]) : juce::String());

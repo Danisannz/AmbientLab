@@ -236,9 +236,25 @@ void AmbientEditor::buildPages()
     // ---- MODULATION ------------------------------------------------------------
     auto& mod = pages[2];
     mod.cols = 4; mod.rows = 2;
+    mod.rowWeights = { 1.0f, 1.05f };
+    std::array<ambient::ui::ModuleCard*, 4> lfoCards {};
     for (int i = 0; i < 4; ++i)
-        mod.add("LFO " + juce::String(i + 1), Glyph::Lfo, i, 0).setPlaceholder("14 waveforms, sync, fade-in and stereo phase", 6);
-    mod.add("Modulation matrix", Glyph::Matrix, 0, 1, 4).setPlaceholder("32 routing slots with depth, polarity, attenuation and inversion", 6);
+    {
+        auto& c = mod.add("LFO " + juce::String(i + 1), Glyph::Lfo, i, 0);
+        lfoPanels[size_t(i)] = std::make_unique<LfoPanel>(proc, i);
+        c.addAndMakeVisible(*lfoPanels[size_t(i)]);
+        c.setHeaderLedVisible(false);
+        lfoCards[size_t(i)] = &c;
+    }
+    auto& mx = mod.add("Modulation matrix", Glyph::Matrix, 0, 1, 4);
+    matrixPanel = std::make_unique<ModMatrixPanel>(proc);
+    mx.addAndMakeVisible(*matrixPanel);
+    mx.setHeaderLedVisible(false);
+    mod.layoutContents = [this, lfoCards, &mx]
+    {
+        for (size_t i = 0; i < 4; ++i) lfoPanels[i]->setBounds(lfoCards[i]->getContentBounds().reduced(2));
+        matrixPanel->setBounds(mx.getContentBounds().reduced(2));
+    };
 
     // ---- SEQUENCER ---------------------------------------------------------------
     auto& seq = pages[3];

@@ -14,6 +14,7 @@ set(AMBIENT_PLUGIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/SidechainPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/OscillatorPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/FilterEnvPanels.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/ModulationPanels.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/AnalyzerView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/ScopeView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/StereoView.cpp

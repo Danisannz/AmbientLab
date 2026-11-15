@@ -1,4 +1,6 @@
 #include <ambient/dsp/Delay.h>
+#include <ambient/dsp/Lfo.h>
+#include "ModDestinations.h"
 #include "Parameters.h"
 #include <ambient/ParamIDs.h>
 
@@ -254,6 +256,38 @@ Layout createParameterLayout()
         layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::width), "Delay Width", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.7f, pctAttr));
         layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::pitch), "Delay Pitch", juce::NormalisableRange<float> { -24.0f, 24.0f, 0.01f }, 12.0f, oct));
         layout.add(std::make_unique<juce::AudioParameterFloat>(P6(d::mix), "Delay Mix", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.3f, pctAttr));
+
+        // ---- LFOs + modulation matrix (Stage 7) ----
+        auto P7 = [&](const juce::String& i) { return PID { i, 7 }; };
+        juce::StringArray lfoWaves; for (int w = 0; w < ambient::dsp::Lfo::kNumWaves; ++w) lfoWaves.add(ambient::dsp::Lfo::waveName(w));
+        for (int l = 1; l <= 4; ++l)
+        {
+            const juce::String pre = "lfo." + juce::String(l) + ".", nm = "LFO " + juce::String(l) + " ";
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P7(pre + "wave"), nm + "Wave", lfoWaves, 0));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P7(pre + "rate"), nm + "Rate", logRange(0.01f, 40.0f), l == 1 ? 0.5f : 0.15f * float(l),
+                juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float x, int) { return juce::String(x, x < 1.0f ? 2 : (x < 10.0f ? 1 : 0)) + " Hz"; })));
+            layout.add(std::make_unique<juce::AudioParameterBool>(P7(pre + "sync"), nm + "Sync", false));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P7(pre + "division"), nm + "Division", divs, 9));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P7(pre + "phase"), nm + "Phase", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f, deg));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P7(pre + "shape"), nm + "Shape", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.5f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P7(pre + "smooth"), nm + "Smooth", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterBool>(P7(pre + "unipolar"), nm + "Unipolar", false));
+            layout.add(std::make_unique<juce::AudioParameterBool>(P7(pre + "retrig"), nm + "Retrigger", false));
+            const float def[8] = { 0.0f, 0.7f, 1.0f, 0.4f, -0.2f, -0.8f, -1.0f, -0.4f };
+            for (int k = 1; k <= 8; ++k)
+                layout.add(std::make_unique<juce::AudioParameterFloat>(P7(pre + "pt" + juce::String(k)), nm + "Curve " + juce::String(k),
+                    juce::NormalisableRange<float> { -1.0f, 1.0f }, def[k - 1], bip));
+        }
+        juce::StringArray srcNames; for (auto* n : ambient::modsrc::kNames) srcNames.add(n);
+        juce::StringArray dstNames { "None" };
+        for (auto* d : ambient::moddest::kDestinationNames) dstNames.add(d);
+        for (int m = 1; m <= ambient::dsp::ModMatrix::kSlots; ++m)
+        {
+            const juce::String pre = "mm." + juce::String(m) + ".", nm = "Mod " + juce::String(m) + " ";
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P7(pre + "src"), nm + "Source", srcNames, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P7(pre + "dst"), nm + "Destination", dstNames, 0));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P7(pre + "amt"), nm + "Amount", juce::NormalisableRange<float> { -1.0f, 1.0f }, 0.0f, bip));
+        }
     }
 
     return layout;

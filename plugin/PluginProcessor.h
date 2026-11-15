@@ -10,8 +10,21 @@
 #include <ambient/dsp/Reverb.h>
 #include <ambient/dsp/StereoSafety.h>
 #include <ambient/dsp/Delay.h>
+#include <ambient/dsp/Lfo.h>
+#include "ModDestinations.h"
 #include <ambient/ParamIDs.h>
 #include <array>
+
+/** Parameter reference used by every engine read. If the parameter is a modulation
+    destination, load() returns its modulated value (computed once per control sub-block on
+    the audio thread), otherwise the raw host value. `ref->load()` keeps the old call syntax. */
+struct PRef
+{
+    std::atomic<float>* raw = nullptr;
+    const float* mod = nullptr;
+    float load() const noexcept { return mod != nullptr ? *mod : raw->load(std::memory_order_relaxed); }
+    const PRef* operator->() const noexcept { return this; }
+};
 
 class AmbientProcessor : public juce::AudioProcessor
 {
@@ -93,17 +106,15 @@ private:
 
     struct ScParams
     {
-        std::atomic<float> *enable = nullptr, *inputGain = nullptr, *sensitivity = nullptr, *threshold = nullptr,
-                           *depth = nullptr, *mix = nullptr, *automatic = nullptr, *fullBand = nullptr,
-                           *rangeLow = nullptr, *rangeHigh = nullptr, *listen = nullptr, *delta = nullptr;
+        PRef enable, inputGain, sensitivity, threshold, depth, mix, automatic, fullBand, rangeLow, rangeHigh, listen, delta;
         std::array<std::array<std::atomic<float>*, 7>, ambient::ids::sc::kBands> band {};
     } scParams;
     ambient::dsp::SpectralDucker ducker;
     ambient::Smoother scGain;
     juce::AudioBuffer<float> scratch; // preallocated: refL, refR, intL, intR
 
-    std::atomic<float>* pMasterGain  = nullptr;
-    std::atomic<float>* pInputGain   = nullptr;
+    PRef pMasterGain;
+    PRef pInputGain;
     std::atomic<float>* pSourceMix   = nullptr;
     std::atomic<float>* pBypassSynth = nullptr;
 
@@ -112,22 +123,44 @@ private:
     ambient::dsp::SynthEngine synth;
     ambient::dsp::Granular granular;
     void readGranularParams();
-    std::vector<std::atomic<float>*> grRaw;
+    std::vector<PRef> grRaw;
     ambient::dsp::Reverb reverb;
     void readReverbParams();
-    std::vector<std::atomic<float>*> rvRaw;
+    std::vector<PRef> rvRaw;
     ambient::dsp::StereoSafety stereoSafety;
     ambient::dsp::Delay delay;
     void readDelayParams();
-    std::vector<std::atomic<float>*> dlRaw;
+    std::vector<PRef> dlRaw;
     double hostBpm = 120.0;
+
+    // ---- Modulation (Stage 7) -------------------------------------------------
+    static constexpr int kControlBlock = 32;          // modulation / parameter update rate
+    std::array<float, ambient::moddest::kNumDestinations> modValue {};
+    std::array<std::atomic<float>*, ambient::moddest::kNumDestinations> destRaw {};
+    std::array<juce::RangedAudioParameter*, ambient::moddest::kNumDestinations> destParam {};
+    std::array<ambient::dsp::Lfo, 4> lfos;
+    std::array<std::vector<PRef>, 4> lfoRaw;          // wave rate sync division phase shape smooth unipolar retrig pt1..8
+    std::vector<std::atomic<float>*> mmRaw;           // per slot: src dst amt
+    std::array<std::atomic<float>*, 8> macroRaw {};
+    std::array<float, ambient::modsrc::kCount> srcValue {};
+    std::array<float, ambient::moddest::kNumDestinations + 1> modOffset {};
+    std::array<ambient::dsp::ModMatrix::Slot, ambient::dsp::ModMatrix::kSlots> slots {};
+    float midiVelocity = 0.0f, midiWheel = 0.0f, midiAftertouch = 0.0f, midiBend = 0.0f, midiKey = 0.0f, midiRandom = 0.0f;
+    uint32_t noteRng = 0x1234567u;
+    bool transportPlaying = false; double transportPpq = 0.0;
+    void updateModulation(int startSample, int numSamples) noexcept;
+public:
+    std::array<std::atomic<float>, 4> lfoOut {}, lfoPhaseOut {};
+    std::array<std::atomic<float>, ambient::modsrc::kCount> sourceOut {};
+    std::array<std::atomic<float>, ambient::dsp::ModMatrix::kSlots> slotOut {};   // current amount x source
+private:
     void readStereoParams();
-    std::vector<std::atomic<float>*> outRaw;
+    std::vector<PRef> outRaw;
 public:
     const ambient::dsp::StereoSafety::Telemetry& stereoTelemetry() const noexcept { return stereoSafety.telemetry(); }
 private:
     void readSynthParams();
-    std::vector<std::atomic<float>*> oscRaw; // cached raw parameter pointers (filled in the constructor)
+    std::vector<PRef> oscRaw; // cached raw parameter pointers (filled in the constructor)
     juce::AudioBuffer<float> synthBuffer; // preallocated in prepareToPlay
     juce::AudioProcessLoadMeasurer loadMeasurer;
 
