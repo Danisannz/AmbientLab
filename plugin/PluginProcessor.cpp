@@ -73,6 +73,10 @@ AmbientProcessor::AmbientProcessor()
     for (auto f : { "on", "clock", "bpm", "length", "division", "swing", "direction", "root", "scale", "octave", "transpose", "gate", "patternStart" })
         seqRaw.push_back(rawId("seq." + juce::String(f)));
     for (int l = 0; l < 4; ++l) seqLockDst[size_t(l)] = apvts.getRawParameterValue("seq.lock" + juce::String(l + 1));
+    for (auto f : { "on", "amount", "density", "range", "chromatic", "vel", "gate", "steps", "lockNotes", "lockVel", "lockGate", "lockSteps", "seed" })
+        seqRndRaw.push_back(rawId("seq.rnd." + juce::String(f)));
+    for (auto f : { "wave", "dest", "depth", "sync", "division", "rate", "phase", "retrig", "smooth", "smoothSpeed" })
+        seqLfoRaw.push_back(rawId("seq.lfo." + juce::String(f)));
     for (auto f : { "mode", "order", "feedback", "fxGain" }) routeRaw.push_back(rawId("route." + juce::String(f)));
     seqModel.loadPresetPattern(0);   // default pattern (sequencer itself is off by default)
     publishPattern();
@@ -444,6 +448,35 @@ void AmbientProcessor::patternFromTree(const juce::ValueTree& t)
     publishPattern();
 }
 
+void AmbientProcessor::fillSeqExtras(ambient::dsp::Sequencer::Params& p) const noexcept
+{
+    using S = ambient::dsp::Sequencer::Params;
+    auto r = [this](size_t i) { return seqRndRaw[i].load(); };
+    p.random.on = r(0) > 0.5f; p.random.amount = r(1); p.random.density = r(2); p.random.range = juce::roundToInt(r(3));
+    p.random.chromatic = r(4) > 0.5f; p.random.velocity = r(5); p.random.gate = r(6); p.random.steps = r(7) > 0.5f;
+    p.random.lockNotes = r(8) > 0.5f; p.random.lockVelocity = r(9) > 0.5f; p.random.lockGate = r(10) > 0.5f; p.random.lockSteps = r(11) > 0.5f;
+    p.random.seed = uint32_t(juce::jmax(1, juce::roundToInt(r(12))));
+    auto l = [this](size_t i) { return seqLfoRaw[i].load(); };
+    p.lfo.wave = S::SeqLfo::Wave(juce::jlimit(0, 5, juce::roundToInt(l(0))));
+    p.lfo.dest = S::SeqLfo::Dest(juce::jlimit(0, 3, juce::roundToInt(l(1))));
+    p.lfo.depth = l(2); p.lfo.sync = l(3) > 0.5f; p.lfo.division = juce::roundToInt(l(4)); p.lfo.rateHz = l(5);
+    p.lfo.phase = l(6); p.lfo.retrigger = l(7) > 0.5f; p.lfo.smooth = l(8); p.lfo.smoothSpeed = l(9) > 0.5f;
+}
+
+void AmbientProcessor::generateSeqPattern()
+{
+    auto p = seqModel.getParams();
+    p.length = juce::jlimit(1, 32, juce::roundToInt(seqRaw[3].raw->load()));
+    p.scale = juce::roundToInt(seqRaw[8].raw->load());
+    p.root = juce::roundToInt(seqRaw[7].raw->load());
+    fillSeqExtras(p);
+    seqModel.setParams(p);
+    const auto seed = uint32_t(juce::Random::getSystemRandom().nextInt(999998) + 1);
+    seqModel.generate(seed);
+    publishPattern();   // picked up by the audio thread at the next block: playback continues
+    if (auto* sp = apvts.getParameter("seq.rnd.seed")) sp->setValueNotifyingHost(sp->convertTo0to1(float(seed % 999999 + 1)));
+}
+
 void AmbientProcessor::readSequencerParams() noexcept
 {
     using S = ambient::dsp::Sequencer;
@@ -461,6 +494,7 @@ void AmbientProcessor::readSequencerParams() noexcept
     p.transpose = juce::roundToInt(v(10));
     p.gateScale = v(11);
     p.changeOnPatternStartOnly = v(12) > 0.5f;
+    fillSeqExtras(p);
     sequencer.setParams(p);
 }
 

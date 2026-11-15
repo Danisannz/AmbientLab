@@ -159,6 +159,8 @@ private:
     ambient::dsp::Sequencer seqModel;                  // message thread: editing model (presets, randomise)
     ambient::TripleBuffer<SeqPattern> seqPattern;      // message -> audio
     std::vector<PRef> seqRaw;                          // on clock bpm length division swing direction root scale octave transpose gate patternStart
+    std::vector<PRef> seqRndRaw, seqLfoRaw;
+    void fillSeqExtras(ambient::dsp::Sequencer::Params&) const noexcept;
     std::array<std::atomic<float>*, 4> seqLockDst {};
     int seqNotesOn = 0; float seqLastVelocity = 0.0f;
     void publishPattern() noexcept;
@@ -190,6 +192,8 @@ public:
     void setSeqStep(int i, const ambient::dsp::Sequencer::Step& st) { seqModel.setStep(i, st); publishPattern(); }
     void loadSeqPreset(int index);
     void randomiseSeq(float amount);
+    /** Random mode: builds a new musical pattern (scale / root / locks) and a new variation seed; playback continues. */
+    void generateSeqPattern();
     std::atomic<int> seqCurrentStep { -1 };
     /** Diagnostics / tests: effective (modulated) value of a destination parameter as the DSP
         used it in the last processed control block (raw value if it is not a destination). */

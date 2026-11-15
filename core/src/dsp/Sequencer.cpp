@@ -97,7 +97,7 @@ void Sequencer::flushAll(int offset) noexcept
     pendingCount = 0;
 }
 
-void Sequencer::triggerSlot(int64_t s, double stepBeats, int cycle) noexcept
+void Sequencer::triggerSlot(int64_t s, double stepBeats, int cycle, double tOn, double dur, double bpm) noexcept
 {
     if (cycle <= 0) { curStep = -1; return; }
     const int idx = stepForSlot(s, cycle);
@@ -111,24 +111,186 @@ void Sequencer::triggerSlot(int64_t s, double stepBeats, int cycle) noexcept
         latchValid = true;
     }
 
-    const Step& st = steps[size_t(idx)];
+    // sequencer LFO value at this step (song position, or position in the cycle when retriggered)
+    const auto& L = params.lfo;
+    const int64_t cycleIndex = int64_t(std::floor(double(s) / double(cycle)));
+    float lfoV = 0.0f;
+    if (L.depth != 0.0f)
+    {
+        const double beats = L.retrigger ? double(posMod(s, cycle)) * stepBeats : tOn;
+        lfoV = seqLfoAt(beats, bpm, L.retrigger ? 0 : cycleIndex);
+    }
+    const bool lfoNotes = L.depth != 0.0f && (L.dest == Params::SeqLfo::Dest::Notes || L.dest == Params::SeqLfo::Dest::NotesAndEvolution);
+    const bool lfoEvo = L.depth != 0.0f && (L.dest == Params::SeqLfo::Dest::Evolution || L.dest == Params::SeqLfo::Dest::NotesAndEvolution);
+
+    // live variation (random mode and / or LFO evolution): deterministic per (seed, cycle, step)
+    double amount = params.random.on ? double(std::clamp(params.random.amount, 0.0f, 1.0f)) : 0.0;
+    if (lfoEvo) amount += double(std::fabs(L.depth)) * (0.5 + 0.5 * double(lfoV));
+    amount = std::clamp(amount, 0.0, 1.0);
+    const Step st = amount > 0.0 ? varied(steps[size_t(idx)], idx, cycleIndex, amount, latchedScale) : steps[size_t(idx)];
+
     if (! st.active) return;
     if (unit(hash(params.seed, uint64_t(s), 0x9E37u)) >= double(std::clamp(st.probability, 0.0f, 1.0f))) return;
 
-    const double t0 = slotStart(s, stepBeats), t1 = slotStart(s + 1, stepBeats);
     const int r = std::clamp(st.ratchet, 1, 4);
-    const double sub = (t1 - t0) / double(r);
+    const double sub = dur / double(r);
     const double g = std::clamp(double(st.gate) * double(std::clamp(params.gateScale, 0.0f, 2.0f)), 0.01, 1.0);
-    int note = params.baseNote + latchedRoot + params.transpose + std::clamp(st.note, -24, 24);
-    note = std::clamp(scales::quantize(note, latchedScale, latchedRoot), 0, 127);
+    const bool chromatic = params.random.on && params.random.chromatic;
+    int semis = std::clamp(st.note, -24, 24);
+    if (lfoNotes)
+    {
+        const int shift = int(std::lround(double(L.depth) * double(lfoV) * 7.0));   // up to +-7 degrees
+        semis = chromatic ? semis + shift : scales::shiftDegrees(semis, latchedScale, shift);
+        while (semis > 36) semis -= 12;                                              // keep the configured range
+        while (semis < -24) semis += 12;
+    }
+    int note = params.baseNote + latchedRoot + params.transpose + semis;
+    if (! chromatic) note = scales::quantize(note, latchedScale, latchedRoot);
+    note = std::clamp(note, 0, 127);
     const float vel = std::clamp(st.velocity, 0.0f, 1.0f);
     for (int k = 0; k < r; ++k)
     {
-        const double on = t0 + double(k) * sub;
+        const double on = tOn + double(k) * sub;
         const double off = std::min(on + sub * g, on + sub - 1.0e-9);
         push({ on, note, vel, true });
         push({ off, note, 0.0f, false });
     }
+}
+
+// ---------------------------------------------------------------- random mode
+Sequencer::Step Sequencer::makeStep(const Step& base, int i, int prevSemis, uint64_t h, const Params::Random& r, int scale, int length) noexcept
+{
+    Step st = base;
+    auto u = [h](uint64_t k) { return unit(hash(h, k, 0x3C6EF372u)); };
+    const bool strong = (i % 4) == 0, down = (i % 8) == 0;
+    (void) length;
+    if (r.steps && ! r.lockSteps)
+    {
+        const double p = double(std::clamp(r.density, 0.0f, 1.0f)) * (strong ? 1.35 : ((i % 2) == 0 ? 1.0 : 0.8));
+        st.active = u(1) < std::clamp(p, 0.0, 1.0);
+    }
+    if (! r.lockNotes)
+    {
+        const int range = std::clamp(r.range, 2, 21);
+        if (r.chromatic)
+        {
+            static constexpr int iv[] = { 0, 0, 1, -1, 2, -2, 3, -3, 5, -5, 7, -7, 12, -12 };
+            int n = prevSemis + iv[size_t(hash(h, 2, 7) % 14u)];
+            const int hi = range * 12 / 7, lo = -hi / 2;
+            while (n > hi) n -= 12;
+            while (n < lo) n += 12;
+            st.note = std::clamp(n, -24, 24);
+        }
+        else
+        {
+            const int size = scales::kScales[size_t(scales::clampScale(scale))].size;
+            int deg = scales::semisToDegree(prevSemis, scale);
+            const double a = u(2);
+            const int sign = u(3) < 0.5 ? -1 : 1;
+            if (a < 0.22) {}                                   // repeat
+            else if (a < 0.62) deg += sign;                    // step
+            else if (a < 0.84) deg += 2 * sign;                // skip
+            else if (a < 0.95) deg += (3 + int(u(8) * 2.0)) * sign;
+            else deg += size * sign;                           // octave
+            if (down && u(4) < 0.5)                            // strong beats lean on the root / fifth
+            {
+                const int target = u(5) < 0.6 ? 0 : scales::semisToDegree(7, scale);
+                const int oct = int(std::lround(double(deg - target) / double(size)));
+                deg = target + oct * size;
+            }
+            const int hi = range, lo = -range / 2;
+            while (deg > hi) deg -= size;
+            while (deg < lo) deg += size;
+            st.note = std::clamp(scales::degreeToSemis(deg, scale), -24, 24);
+        }
+    }
+    if (! r.lockVelocity)
+        st.velocity = float(std::clamp(0.72 + (strong ? 0.15 : 0.0) + double(r.velocity) * 0.35 * (2.0 * u(6) - 1.0), 0.15, 1.0));
+    if (! r.lockGate)
+        st.gate = float(std::clamp(0.5 + double(r.gate) * 0.45 * (2.0 * u(7) - 1.0), 0.08, 1.0));
+    return st;
+}
+
+Sequencer::Step Sequencer::varied(const Step& base, int idx, int64_t cycleIndex, double amount, int scale) const noexcept
+{
+    const uint64_t seed = uint64_t(params.random.seed) * 0x9E3779B97F4A7C15ull;
+    if (unit(hash(seed, uint64_t(cycleIndex), uint64_t(idx) * 31u + 0x77u)) >= amount) return base;
+    const int len = std::clamp(params.length, 1, kMaxSteps);
+    const int prev = steps[size_t((idx + len - 1) % len)].note;
+    return makeStep(base, idx, prev, hash(seed, uint64_t(cycleIndex) + 0x1000u, uint64_t(idx)), params.random, scale, len);
+}
+
+void Sequencer::generate(uint32_t seed) noexcept
+{
+    const int len = std::clamp(params.length, 1, kMaxSteps);
+    const int scale = scales::clampScale(params.scale);
+    int prev = 0;
+    for (int i = 0; i < len; ++i)
+    {
+        steps[size_t(i)] = makeStep(steps[size_t(i)], i, prev, hash(seed, uint64_t(i), 0x99u), params.random, scale, len);
+        prev = steps[size_t(i)].note;
+    }
+}
+
+// ---------------------------------------------------------------- sequencer LFO
+float Sequencer::seqLfoAt(double beats, double bpm, int64_t) const noexcept
+{
+    const auto& L = params.lfo;
+    double ph;
+    if (L.sync) ph = beats / std::max(1.0e-3, double(Delay::divisionBeats(L.division)));
+    else ph = beats * 60.0 / std::max(20.0, bpm) * std::clamp(double(L.rateHz), 0.01, 20.0);
+    ph += double(L.phase);
+    const double k = std::floor(ph), f = ph - k;
+    const double sm = std::clamp(double(L.smooth), 0.0, 1.0);
+    constexpr double pi = 3.14159265358979323846;
+    double y = 0.0;
+    switch (L.wave)
+    {
+        case Params::SeqLfo::Wave::Sine: y = std::sin(2.0 * pi * f); break;
+        case Params::SeqLfo::Wave::Triangle: y = f < 0.25 ? 4.0 * f : (f < 0.75 ? 2.0 - 4.0 * f : 4.0 * f - 4.0); break;
+        case Params::SeqLfo::Wave::SawUp:
+        case Params::SeqLfo::Wave::SawDown:
+        {
+            const double w = 0.5 * sm;
+            y = 2.0 * f - 1.0;
+            if (w > 0.0 && f > 1.0 - w) { const double t = (f - (1.0 - w)) / w; y = 1.0 - 2.0 * (t * t * (3.0 - 2.0 * t)); }
+            if (L.wave == Params::SeqLfo::Wave::SawDown) y = -y;
+            break;
+        }
+        case Params::SeqLfo::Wave::Square:
+        {
+            const double kk = 1.0 + 40.0 * (1.0 - sm) * (1.0 - sm);
+            y = std::tanh(kk * std::sin(2.0 * pi * f)) / std::tanh(kk);
+            break;
+        }
+        case Params::SeqLfo::Wave::SampleHold:
+        {
+            const double a = unit(hash(params.random.seed, uint64_t(int64_t(k)), 0x5A5Au)) * 2.0 - 1.0;
+            const double b = unit(hash(params.random.seed, uint64_t(int64_t(k) + 1), 0x5A5Au)) * 2.0 - 1.0;
+            y = a + sm * (b - a) * (0.5 - 0.5 * std::cos(pi * f));
+            break;
+        }
+    }
+    return float(std::clamp(y, -1.0, 1.0));
+}
+
+double Sequencer::speedForBar(int64_t bar, double bpm) const noexcept
+{
+    const auto& L = params.lfo;
+    if (L.depth == 0.0f || L.dest != Params::SeqLfo::Dest::Speed) return 1.0;
+    const double x = double(L.depth) * double(seqLfoAt(double(bar) * 4.0 + 2.0, bpm, 0));   // sampled mid-bar
+    return x > 0.5 ? 2.0 : (x < -0.5 ? 0.5 : 1.0);     // rhythmic divisions only: x1/2, x1, x2
+}
+
+/** Pattern position for a song position: speed changes only at bar starts, so the mapping is a pure
+    function of the song position (host loops / jumps stay exact). Cached incrementally per bar. */
+double Sequencer::virtualAt(double ppq, double bpm) noexcept
+{
+    if (params.lfo.depth == 0.0f || params.lfo.dest != Params::SeqLfo::Dest::Speed || ppq < 0.0) return ppq;
+    const int64_t bar = int64_t(std::floor(ppq / 4.0));
+    if (! vCacheValid || bar < vCacheBar) { vCacheBar = 0; vCacheV = 0.0; vCacheValid = true; }
+    while (vCacheBar < bar) { vCacheV += 4.0 * speedForBar(vCacheBar, bpm); ++vCacheBar; }
+    return vCacheV + (ppq - double(bar) * 4.0) * speedForBar(bar, bpm);
 }
 
 void Sequencer::process(int numSamples, const Transport& t) noexcept
@@ -163,23 +325,61 @@ void Sequencer::process(int numSamples, const Transport& t) noexcept
     const double stepBeats = double(Delay::divisionBeats(params.division));
     const int cycle = buildOrder();
 
+    // Speed modulation (sequencer LFO): slots live in "pattern position" v.
+    //  - quantised (default, both clocks): x1/2 / x1 / x2 per bar, v = pure function of the song position
+    //  - smooth (internal clock only): v integrates a continuous speed
+    const auto& L = params.lfo;
+    const bool speedOn = L.depth != 0.0f && L.dest == Params::SeqLfo::Dest::Speed;
+    const bool smooth = speedOn && L.smoothSpeed && ! t.hostSync;
+    const uint64_t sig = hash(uint64_t(speedOn) | (uint64_t(smooth) << 1) | (uint64_t(L.sync) << 2) | (uint64_t(L.wave) << 3),
+                              uint64_t(int64_t(L.depth * 1.0e4f)) ^ (uint64_t(L.division) << 20) ^ (uint64_t(int64_t(L.rateHz * 1.0e4f)) << 28),
+                              uint64_t(int64_t(L.phase * 1.0e4f)) ^ (uint64_t(params.random.seed) << 16));
+    if (sig != speedSig) { speedSig = sig; vCacheValid = false; needResync = true; if (smooth) virtualPos = ppq0; }
+
+    double v0;
+    if (smooth) v0 = needResync && ! wasPlaying ? ppq0 : virtualPos;
+    else v0 = virtualAt(ppq0, bpm);
+
     if (needResync)
     {
-        // last slot that started strictly before ppq0 (a slot starting exactly at ppq0 still triggers)
-        int64_t s = floorDiv(ppq0 / stepBeats) + 1;
-        while (slotStart(s, stepBeats) >= ppq0) --s;
+        // last slot that started strictly before v0 (a slot starting exactly at v0 still triggers)
+        int64_t s = floorDiv(v0 / stepBeats) + 1;
+        while (slotStart(s, stepBeats) >= v0) --s;
         lastSlot = s;
         needResync = false;
         latchValid = false;
     }
 
-    for (int guard = 0; guard < 4096; ++guard)
+    // pieces of constant speed inside this block (split at bar starts when quantised)
+    double pa = ppq0, va = v0;
+    lastSpeed = 1.0;
+    for (int piece = 0; piece < 64 && pa < ppq1; ++piece)
     {
-        const int64_t s = lastSlot + 1;
-        if (slotStart(s, stepBeats) >= ppq1) break;
-        triggerSlot(s, stepBeats, cycle);
-        lastSlot = s;
+        double pb = ppq1, m = 1.0;
+        if (smooth)
+            m = std::pow(2.0, std::clamp(double(L.depth) * double(seqLfoAt(ppq0, bpm, 0)), -1.0, 1.0));
+        else if (speedOn)
+        {
+            const int64_t bar = int64_t(std::floor(pa / 4.0));
+            pb = std::min(ppq1, double(bar + 1) * 4.0);
+            m = speedForBar(bar, bpm);
+            if (pb <= pa) { pa = pb; continue; }
+        }
+        lastSpeed = m;
+        const double vb = va + (pb - pa) * m;
+        for (int guard = 0; guard < 4096; ++guard)
+        {
+            const int64_t s = lastSlot + 1;
+            const double vs = slotStart(s, stepBeats);
+            if (vs >= vb) break;
+            const double tOn = pa + (vs - va) / m;
+            const double dur = (slotStart(s + 1, stepBeats) - vs) / m;
+            triggerSlot(s, stepBeats, cycle, tOn, dur, bpm);
+            lastSlot = s;
+        }
+        pa = pb; va = vb;
     }
+    if (smooth) virtualPos = va;
 
     // due events -> sorted by time (note-off first on ties) -> sample offsets
     std::array<Pending, 64> due {};

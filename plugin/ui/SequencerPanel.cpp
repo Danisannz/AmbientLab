@@ -196,7 +196,79 @@ SequencerPanel::SequencerPanel(AmbientProcessor& p) : proc(p), grid(p)
         comboAtt.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(s, "seq.lock" + juce::String(l + 1), lockTargets[size_t(l)]));
     }
     addAndMakeVisible(grid);
+
+    // ---- contextual views ----
+    const char* viewNames[3] = { "MAIN", "RANDOM", "SEQ LFO" };
+    for (int v = 0; v < 3; ++v)
+    {
+        auto& b = viewButtons[size_t(v)];
+        b.setButtonText(viewNames[v]);
+        b.setClickingTogglesState(true);
+        b.setRadioGroupId(4712);
+        b.setColour(juce::TextButton::buttonOnColourId, uvDeep);
+        b.onClick = [this, v] { setView(v); };
+        addAndMakeVisible(b);
+    }
+    auto attachBtn = [&](juce::Button& b, const char* pid, const char* tip)
+    {
+        addChildComponent(b);
+        b.setTooltip(tip);
+        btnAtt.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(s, pid, b));
+    };
+    attachBtn(rndOn, "seq.rnd.on", "Random mode: every pattern cycle plays a scale-aware variation of Amount of the steps (the stored pattern is kept)");
+    attachBtn(rndChromatic, "seq.rnd.chromatic", "Allow notes outside the scale (playback quantisation off)");
+    attachBtn(rndSteps, "seq.rnd.steps", "Randomise which steps are active (Density)");
+    attachBtn(lockNotes, "seq.rnd.lockNotes", "Keep notes unchanged when randomising");
+    attachBtn(lockVel, "seq.rnd.lockVel", "Keep velocities unchanged when randomising");
+    attachBtn(lockGate, "seq.rnd.lockGate", "Keep gate lengths unchanged when randomising");
+    attachBtn(lockSteps, "seq.rnd.lockSteps", "Keep active / inactive steps unchanged when randomising");
+    generate.setTooltip("Generate a new pattern from the Random settings (scale and root aware, respects the locks). Playback continues.");
+    generate.onClick = [this] { proc.generateSeqPattern(); grid.repaint(); };
+    addChildComponent(generate);
+    for (auto [pid, name] : { std::pair<const char*, const char*> { "seq.rnd.amount", "Amount" }, { "seq.rnd.density", "Density" },
+                              { "seq.rnd.range", "Range" }, { "seq.rnd.vel", "Velocity" }, { "seq.rnd.gate", "Gate" } })
+    {
+        auto k = std::make_unique<RotaryKnob>(s, pid, name);
+        k->setCompact(true); addChildComponent(*k); rndKnobs.push_back(std::move(k));
+    }
+    lfoWave.addItemList({ "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Random S&H" }, 1);
+    lfoDest.addItemList({ "Notes", "Speed", "Evolution", "Notes + Evolution" }, 1);
+    lfoWave.setTooltip("Sequencer LFO waveform");
+    lfoDest.setTooltip("Notes: shifts scale degrees. Speed: x1/2, x1, x2 per bar (smooth with the internal clock). Evolution: drives the variation amount.");
+    for (auto [c, pid] : { std::pair<juce::ComboBox*, const char*> { &lfoWave, "seq.lfo.wave" }, { &lfoDest, "seq.lfo.dest" } })
+    {
+        addChildComponent(*c);
+        comboAtt.push_back(std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(s, pid, *c));
+    }
+    attachBtn(lfoSync, "seq.lfo.sync", "Tempo-synced LFO (phase locked to the song position)");
+    attachBtn(lfoRetrig, "seq.lfo.retrig", "Restart the LFO at every pattern cycle (repeating melodic movement)");
+    attachBtn(lfoSmoothSpeed, "seq.lfo.smoothSpeed", "Continuous speed changes - internal clock only (host sync always uses x1/2, x1, x2 per bar)");
+    for (auto [pid, name, bip] : { std::tuple<const char*, const char*, bool> { "seq.lfo.rate", "Rate", false }, { "seq.lfo.division", "Division", false },
+                                   { "seq.lfo.depth", "Depth", true }, { "seq.lfo.phase", "Phase", false }, { "seq.lfo.smooth", "Smooth", false } })
+    {
+        auto k = std::make_unique<RotaryKnob>(s, pid, name, bip);
+        k->setCompact(true); addChildComponent(*k); lfoKnobs.push_back(std::move(k));
+    }
+    for (auto& k : knobs) mainItems.push_back(k.get());
+    for (auto& c : lockTargets) mainItems.push_back(&c);
+    for (auto* c : std::initializer_list<juce::Component*> { &rndOn, &rndChromatic, &rndSteps, &lockNotes, &lockVel, &lockGate, &lockSteps, &generate }) rndItems.push_back(c);
+    for (auto& k : rndKnobs) rndItems.push_back(k.get());
+    for (auto* c : std::initializer_list<juce::Component*> { &lfoWave, &lfoDest, &lfoSync, &lfoRetrig, &lfoSmoothSpeed }) lfoItems.push_back(c);
+    for (auto& k : lfoKnobs) lfoItems.push_back(k.get());
+    viewButtons[0].setToggleState(true, juce::dontSendNotification);
+    setView(0);
     startTimerHz(30);
+}
+
+void SequencerPanel::setView(int v)
+{
+    view = v;
+    for (int i = 0; i < 3; ++i) viewButtons[size_t(i)].setToggleState(i == v, juce::dontSendNotification);
+    for (auto* c : mainItems) c->setVisible(v == 0);
+    for (auto* c : rndItems) c->setVisible(v == 1);
+    for (auto* c : lfoItems) c->setVisible(v == 2);
+    timerCallback();
+    resized();
 }
 
 void SequencerPanel::timerCallback()
@@ -205,6 +277,15 @@ void SequencerPanel::timerCallback()
     if (cur != grid.currentStep) { grid.currentStep = cur; grid.repaint(); }
     const bool internal = proc.apvts.getRawParameterValue("seq.clock")->load() > 0.5f;
     if (! knobs.empty() && knobs[0]->isEnabled() != internal) { knobs[0]->setEnabled(internal); knobs[0]->setAlpha(internal ? 1.0f : 0.35f); }
+    if (view == 2 && lfoKnobs.size() >= 2)
+    {
+        const bool synced = proc.apvts.getRawParameterValue("seq.lfo.sync")->load() > 0.5f;
+        lfoKnobs[0]->setVisible(! synced);
+        lfoKnobs[1]->setVisible(synced);
+        const bool speed = juce::roundToInt(proc.apvts.getRawParameterValue("seq.lfo.dest")->load()) == 1;
+        lfoSmoothSpeed.setEnabled(speed && internal);
+        lfoSmoothSpeed.setAlpha(speed && internal ? 1.0f : 0.35f);
+    }
 }
 
 void SequencerPanel::resized()
@@ -222,14 +303,58 @@ void SequencerPanel::resized()
     presets.setBounds(top.removeFromLeft(top.getWidth() * 3 / 5).reduced(2, 0));
     randomise.setBounds(top.reduced(2, 0));
     r.removeFromTop(6);
-    // row 2: knobs + lock targets
+    // row 2: contextual controls (view selector on the left)
     auto row = r.removeFromTop(juce::jmin(84, RotaryKnob::heightFor(40, true)));
+    {
+        auto vs = row.removeFromLeft(78);
+        const int bh = vs.getHeight() / 3;
+        for (auto& b : viewButtons) b.setBounds(vs.removeFromTop(bh).reduced(0, 2));
+        row.removeFromLeft(10);
+    }
     const int kw = juce::jmin(72, row.getWidth() / 12);
-    for (auto& k : knobs) k->setBounds(row.removeFromLeft(kw));
-    row.removeFromLeft(12);
-    auto locks = row.withSizeKeepingCentre(row.getWidth(), 50);
-    auto l1 = locks.removeFromTop(24), l2 = locks.removeFromBottom(24);
-    for (int l = 0; l < 4; ++l) lockTargets[size_t(l)].setBounds((l < 2 ? l1 : l2).removeFromLeft(row.getWidth() / 2).reduced(2, 0));
+    if (view == 0)
+    {
+        auto rr = row;
+        for (auto& k : knobs) k->setBounds(rr.removeFromLeft(kw));
+        rr.removeFromLeft(12);
+        auto locks = rr.withSizeKeepingCentre(rr.getWidth(), 50);
+        auto l1 = locks.removeFromTop(24), l2 = locks.removeFromBottom(24);
+        for (int l = 0; l < 4; ++l) lockTargets[size_t(l)].setBounds((l < 2 ? l1 : l2).removeFromLeft(rr.getWidth() / 2).reduced(2, 0));
+    }
+    else if (view == 1)
+    {
+        auto rr = row;
+        auto pills = rr.removeFromLeft(220);
+        auto p1 = pills.removeFromTop(pills.getHeight() / 2).reduced(0, 3), p2 = pills.reduced(0, 3);
+        rndOn.setBounds(p1.removeFromLeft(72)); p1.removeFromLeft(4); rndChromatic.setBounds(p1.removeFromLeft(84)); p1.removeFromLeft(4); rndSteps.setBounds(p1);
+        generate.setBounds(p2.removeFromLeft(110)); 
+        rr.removeFromLeft(8);
+        for (auto& k : rndKnobs) k->setBounds(rr.removeFromLeft(kw));
+        rr.removeFromLeft(8);
+        lockCaption = rr.withHeight(14).withY(rr.getY() + 2);
+        rr.removeFromTop(14);
+        auto lk = rr.withSizeKeepingCentre(rr.getWidth(), 50);
+        auto a = lk.removeFromTop(24), b2 = lk.removeFromBottom(24);
+        const int lw = juce::jmin(110, rr.getWidth() / 2);
+        lockNotes.setBounds(a.removeFromLeft(lw).reduced(2, 1)); lockVel.setBounds(a.removeFromLeft(lw).reduced(2, 1));
+        lockGate.setBounds(b2.removeFromLeft(lw).reduced(2, 1)); lockSteps.setBounds(b2.removeFromLeft(lw).reduced(2, 1));
+    }
+    else
+    {
+        auto rr = row;
+        auto col = rr.removeFromLeft(170);
+        lfoWave.setBounds(col.removeFromTop(col.getHeight() / 2).reduced(0, 3));
+        lfoDest.setBounds(col.reduced(0, 3));
+        rr.removeFromLeft(8);
+        auto first = rr.removeFromLeft(kw);
+        lfoKnobs[0]->setBounds(first); lfoKnobs[1]->setBounds(first);
+        for (size_t i = 2; i < lfoKnobs.size(); ++i) lfoKnobs[i]->setBounds(rr.removeFromLeft(kw));
+        rr.removeFromLeft(8);
+        auto pills = rr.withSizeKeepingCentre(juce::jmin(rr.getWidth(), 240), 50);
+        auto a = pills.removeFromTop(24), b2 = pills.removeFromBottom(24);
+        lfoSync.setBounds(a.removeFromLeft(80).reduced(2, 1)); lfoRetrig.setBounds(a.removeFromLeft(90).reduced(2, 1));
+        lfoSmoothSpeed.setBounds(b2.removeFromLeft(140).reduced(2, 1));
+    }
     r.removeFromTop(6);
     // row 3: lanes
     auto lanes = r.removeFromTop(22);
@@ -239,5 +364,13 @@ void SequencerPanel::resized()
     grid.setBounds(r);
 }
 
-void SequencerPanel::paint(juce::Graphics&) {}
+void SequencerPanel::paint(juce::Graphics& g)
+{
+    if (view == 1 && ! lockCaption.isEmpty())
+    {
+        g.setFont(caption(9.5f));
+        g.setColour(textFaint);
+        g.drawText("LOCKED FIELDS", lockCaption.translated(2, 0), juce::Justification::centredLeft);
+    }
+}
 } // namespace ambient::ui

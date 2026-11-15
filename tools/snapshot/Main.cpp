@@ -1,6 +1,7 @@
 #include "../../tests/StereoMetrics.h"
 #include "../../plugin/ModDestinations.h"
 #include "../../plugin/Presets.h"
+#include <ambient/dsp/Scales.h>
 #include "../../plugin/ui/ModAssign.h"
 // Renders the AmbientLab editor in several states to PNG, feeding it real audio
 // through processBlock so the analyzer shows live data.
@@ -791,6 +792,60 @@ static int runSelfTest()
        #endif
     }
 
+    // Sequencer Random mode + sequencer LFO through the plugin.
+    {
+        auto fresh = [&]()
+        {
+            auto p = std::make_unique<AmbientProcessor>();
+            p->setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                         juce::AudioChannelSet::stereo()));
+            p->setRateAndBufferSizeDetails(sr, 512);
+            p->prepareToPlay(sr, 512);
+            setParam(*p, "seq.on", 1.0f); setParam(*p, "seq.clock", 1.0f); setParam(*p, "seq.bpm", 120.0f); setParam(*p, "seq.division", 3.0f);
+            for (int i = 0; i < 16; ++i) { auto st = p->getSeqStep(i); st.active = true; st.probability = 1; st.ratchet = 1; st.skip = false; p->setSeqStep(i, st); }
+            return p;
+        };
+        auto play = [&](AmbientProcessor& p, double seconds, std::function<void(int)> at = nullptr)
+        {
+            juce::AudioBuffer<float> buf(juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels(), 2), 512);
+            juce::MidiBuffer none;
+            for (int b = 0; b < int(sr * seconds / 512); ++b) { if (at) at(b); buf.clear(); p.processBlock(buf, none); }
+        };
+        // generate while playing
+        {
+            auto p = fresh();
+            setParam(*p, "seq.scale", 4.0f); setParam(*p, "seq.root", 2.0f);   // D dorian
+            setParam(*p, "seq.rnd.density", 1.0f);
+            uint32_t before = 0, after = 0;
+            play(*p, 2.0);
+            before = p->seqNoteOnCount.load();
+            p->generateSeqPattern();
+            play(*p, 2.0);
+            after = p->seqNoteOnCount.load() - before;
+            bool inScale = true;
+            for (int i = 0; i < 16; ++i) inScale = inScale && ambient::dsp::scales::contains(48 + 2 + p->getSeqStep(i).note, 4, 2);
+            std::printf("       generate while playing: %u notes in 2 s before, %u after (pattern swapped live)\n", before, after);
+            check(after >= before - 1 && after <= before + 1 && inScale, "Generate swaps in a new in-scale pattern without stopping playback");
+
+            juce::MemoryBlock mb; setParam(*p, "seq.lfo.depth", 0.6f); setParam(*p, "seq.rnd.on", 1.0f); p->getStateInformation(mb);
+            auto q = fresh(); q->setStateInformation(mb.getData(), int(mb.getSize()));
+            bool same = true; for (int i = 0; i < 16; ++i) same = same && q->getSeqStep(i).note == p->getSeqStep(i).note && q->getSeqStep(i).active == p->getSeqStep(i).active;
+            check(same && std::abs(q->apvts.getRawParameterValue("seq.lfo.depth")->load() - 0.6f) < 1e-3f && q->apvts.getRawParameterValue("seq.rnd.on")->load() > 0.5f
+                  && std::abs(q->apvts.getRawParameterValue("seq.rnd.seed")->load() - p->apvts.getRawParameterValue("seq.rnd.seed")->load()) < 0.5f,
+                  "generated pattern, random and sequencer-LFO settings persist");
+        }
+        // speed modulation through the plugin: square LFO over 2 bars -> x2 then x1/2
+        {
+            auto p = fresh();
+            setParam(*p, "seq.lfo.dest", 1.0f); setParam(*p, "seq.lfo.wave", 4.0f); setParam(*p, "seq.lfo.depth", 1.0f);
+            setParam(*p, "seq.lfo.sync", 1.0f); setParam(*p, "seq.lfo.division", 14.0f);
+            play(*p, 8.0);
+            const auto n = p->seqNoteOnCount.load();
+            std::printf("       sequencer LFO -> speed (4 bars, 1/16): %u notes (constant speed: 64; x2 + x1/2 alternating: 80)\n", n);
+            check(n >= 79 && n <= 81, "sequencer LFO speed modulation works in the plugin");
+        }
+    }
+
     // Stage 9: presets, routing, automation fuzz.
     {
         auto fresh = [&]()
@@ -1171,6 +1226,8 @@ int main(int argc, char** argv)
         { "process_reverb", 1, 2, false, 1280, 800, 1, { { "processModule", 2 } } },
         { "process_stereo", 1, 2, false, 1280, 800, 1, { { "processModule", 4 } } },
         { "process_delay", 1, 2, false, 1280, 800, 1, { { "processModule", 3 } } },
+        { "seq_random", 3, 2, false, 1280, 800, 1, { { "seqView", 1 } } },
+        { "seq_lfo", 3, 2, false, 1280, 800, 1, { { "seqView", 2 } } },
         { "stereo_lr_docked", 1, 1, false, 1280, 800, 1, { { "vs_display", 1 } } },
         { "scope_mono_falling", 0, 0, false, 1280, 800, 1, { { "sc_view", 4 }, { "sc_time", 8.0 }, { "sc_trig", 2 }, { "sc_level", 0.2 }, { "sc_gain", 2.0 } } },
     };
@@ -1217,6 +1274,16 @@ int main(int argc, char** argv)
         ed->setOpaque(true);
         ed->addToDesktop(juce::ComponentPeer::windowIsTemporary); // real on-screen painting (Xvfb)
         ed->setVisible(true);
+        for (const auto& [k, v] : s.extra)       // sequencer view (MAIN / RANDOM / SEQ LFO)
+            if (k == "seqView")
+            {
+                std::function<void(juce::Component*)> find = [&](juce::Component* c)
+                {
+                    if (auto* sp = dynamic_cast<ambient::ui::SequencerPanel*>(c)) sp->setView(int(v));
+                    for (auto* ch : c->getChildren()) find(ch);
+                };
+                find(ed.get());
+            }
 
         juce::Random rng(1234);
         double phase = 0.0;

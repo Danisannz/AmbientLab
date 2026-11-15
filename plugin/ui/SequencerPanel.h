@@ -51,5 +51,21 @@ private:
     std::array<juce::TextButton, StepGrid::kLanes> laneButtons;
     std::array<juce::ComboBox, 4> lockTargets;
     StepGrid grid;
+
+    // contextual control row: MAIN | RANDOM | SEQ LFO
+public:
+    void setView(int v);
+private:
+    int view = 0;
+    std::array<juce::TextButton, 3> viewButtons;
+    PillToggle rndOn { "Random", theme::lime }, rndChromatic { "Chromatic", theme::uvBright }, rndSteps { "Steps", theme::uvBright };
+    PillToggle lockNotes { "Notes", theme::magenta }, lockVel { "Velocity", theme::magenta }, lockGate { "Gate", theme::magenta }, lockSteps { "Steps", theme::magenta };
+    juce::Rectangle<int> lockCaption;
+    juce::TextButton generate { "Generate" };
+    std::vector<std::unique_ptr<RotaryKnob>> rndKnobs;
+    juce::ComboBox lfoWave, lfoDest;
+    PillToggle lfoSync { "Sync", theme::lime }, lfoRetrig { "Retrig", theme::uvBright }, lfoSmoothSpeed { "Smooth speed", theme::uvBright };
+    std::vector<std::unique_ptr<RotaryKnob>> lfoKnobs;   // rate, division, depth, phase, smooth
+    std::vector<juce::Component*> mainItems, rndItems, lfoItems;
 };
 } // namespace ambient::ui

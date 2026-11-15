@@ -58,4 +58,27 @@ inline int quantize(int note, int scale, int root) noexcept
     }
     return note; // unreachable: every scale contains the root
 }
+
+/** Semitone offset (from the root) of a scale degree; degrees continue across octaves (negative ok). */
+inline int degreeToSemis(int degree, int scale) noexcept
+{
+    const auto& s = kScales[size_t(clampScale(scale))];
+    const int n = s.size;
+    const int oct = degree >= 0 ? degree / n : -((-degree + n - 1) / n);
+    return int(s.iv[size_t(degree - oct * n)]) + 12 * oct;
+}
+
+/** Degree of a semitone offset (from the root); off-scale offsets resolve to the degree below. */
+inline int semisToDegree(int semis, int scale) noexcept
+{
+    const auto& s = kScales[size_t(clampScale(scale))];
+    const int oct = semis >= 0 ? semis / 12 : -((-semis + 11) / 12);
+    const int pc = semis - oct * 12;
+    int d = 0;
+    for (int i = 0; i < s.size; ++i) if (int(s.iv[size_t(i)]) <= pc) d = i;
+    return d + oct * s.size;
+}
+
+/** Moves a semitone offset by n scale degrees (stays in the scale). */
+inline int shiftDegrees(int semis, int scale, int n) noexcept { return degreeToSemis(semisToDegree(semis, scale) + n, scale); }
 } // namespace ambient::dsp::scales

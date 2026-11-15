@@ -303,6 +303,36 @@ Layout createParameterLayout()
                 juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float x, int) { return (x > 0 ? "+" : "") + juce::String(juce::roundToInt(x)) + " st"; })));
             layout.add(std::make_unique<juce::AudioParameterFloat>(P8("seq.gate"), "Seq Gate", juce::NormalisableRange<float> { 0.1f, 2.0f }, 1.0f, pctAttr));
             layout.add(std::make_unique<juce::AudioParameterBool>(P8("seq.patternStart"), "Seq Scale Change At Pattern Start", false));
+            // Random mode + dedicated sequencer LFO (version hint 11)
+            auto P11 = [&](const juce::String& i) { return PID { i, 11 }; };
+            layout.add(std::make_unique<juce::AudioParameterBool>(P11("seq.rnd.on"), "Seq Random Mode", false));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P11("seq.rnd.amount"), "Seq Random Amount", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.3f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P11("seq.rnd.density"), "Seq Random Density", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.7f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterInt>(P11("seq.rnd.range"), "Seq Random Range", 2, 21, 7,
+                juce::AudioParameterIntAttributes().withStringFromValueFunction([](int x, int) { return juce::String(x) + " deg"; })));
+            layout.add(std::make_unique<juce::AudioParameterBool>(P11("seq.rnd.chromatic"), "Seq Random Chromatic", false));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P11("seq.rnd.vel"), "Seq Random Velocity", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.3f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P11("seq.rnd.gate"), "Seq Random Gate", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.3f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterBool>(P11("seq.rnd.steps"), "Seq Random Steps", true));
+            for (auto [pid, nm] : { std::pair<const char*, const char*> { "seq.rnd.lockNotes", "Seq Random Lock Notes" }, { "seq.rnd.lockVel", "Seq Random Lock Velocity" },
+                                    { "seq.rnd.lockGate", "Seq Random Lock Gate" }, { "seq.rnd.lockSteps", "Seq Random Lock Steps" } })
+                layout.add(std::make_unique<juce::AudioParameterBool>(P11(pid), nm, false));
+            layout.add(std::make_unique<juce::AudioParameterInt>(P11("seq.rnd.seed"), "Seq Random Seed", 1, 999999, 1,
+                juce::AudioParameterIntAttributes().withAutomatable(false)));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P11("seq.lfo.wave"), "Seq LFO Wave",
+                juce::StringArray { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "Random S&H" }, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P11("seq.lfo.dest"), "Seq LFO Destination",
+                juce::StringArray { "Notes", "Speed", "Evolution", "Notes + Evolution" }, 0));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P11("seq.lfo.depth"), "Seq LFO Depth", juce::NormalisableRange<float> { -1.0f, 1.0f }, 0.0f, bip));
+            layout.add(std::make_unique<juce::AudioParameterBool>(P11("seq.lfo.sync"), "Seq LFO Sync", true));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P11("seq.lfo.division"), "Seq LFO Division", divs, 13));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P11("seq.lfo.rate"), "Seq LFO Rate", logRange(0.01f, 20.0f), 0.25f,
+                juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float x, int) { return juce::String(x, x < 1.0f ? 2 : 1) + " Hz"; })));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P11("seq.lfo.phase"), "Seq LFO Phase", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f, deg));
+            layout.add(std::make_unique<juce::AudioParameterBool>(P11("seq.lfo.retrig"), "Seq LFO Retrigger", false));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P11("seq.lfo.smooth"), "Seq LFO Smooth", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterBool>(P11("seq.lfo.smoothSpeed"), "Seq LFO Smooth Speed", false));
+
             juce::StringArray lockDst { "None" }; for (auto* d : ambient::moddest::kDestinationNames) lockDst.add(d);
             for (int l = 1; l <= 4; ++l)
                 layout.add(std::make_unique<juce::AudioParameterChoice>(P8("seq.lock" + juce::String(l)), "Seq Lock " + juce::String(l) + " Target", lockDst, 0));
