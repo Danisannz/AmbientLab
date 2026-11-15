@@ -109,7 +109,10 @@ Layout createParameterLayout()
         layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(F::BThreshold), v2 }, nm("Threshold"),
             juce::NormalisableRange<float> { -60.0f, 0.0f, 0.1f }, -30.0f, dbAttr("dB")));
         layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(F::BReduction), v2 }, nm("Max Reduction"),
-            juce::NormalisableRange<float> { 0.0f, 24.0f, 0.1f }, 6.0f, dbAttr("dB")));
+            juce::NormalisableRange<float> { 0.0f, 24.0f, 0.1f }, 6.0f,
+            juce::AudioParameterFloatAttributes().withLabel("dB")
+                .withStringFromValueFunction([](float x, int) { return x < 0.05f ? juce::String("0 dB") : "-" + juce::String(x, 1) + " dB"; })
+                .withValueFromStringFunction([](const juce::String& t) { return std::abs(t.getFloatValue()); })));
         layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(F::BAttack), v2 }, nm("Attack"), logRange(0.5f, 100.0f), 5.0f, msAttr));
         layout.add(std::make_unique<juce::AudioParameterFloat>(PID { pid(F::BRelease), v2 }, nm("Release"), logRange(10.0f, 1000.0f), 120.0f, msAttr));
     }

@@ -25,11 +25,16 @@ void AmbientEditor::Page::resized()
     const int g = theme::gap;
     const auto r = getLocalBounds();
     const float cw = float(r.getWidth() + g) / float(cols);
-    const float rh = float(r.getHeight() + g) / float(rows);
+    std::vector<float> wts(size_t(rows), 1.0f);
+    for (size_t i = 0; i < rowWeights.size() && i < wts.size(); ++i) wts[i] = rowWeights[i];
+    float total = 0.0f;
+    for (auto w : wts) total += w;
+    std::vector<float> rowY(size_t(rows) + 1, 0.0f);
+    for (int i = 0; i < rows; ++i) rowY[size_t(i) + 1] = rowY[size_t(i)] + float(r.getHeight() + g) * wts[size_t(i)] / total;
     for (auto& s : slots)
     {
-        const int x = juce::roundToInt(s.col * cw), y = juce::roundToInt(s.row * rh);
-        const int w = juce::roundToInt(s.colSpan * cw) - g, h = juce::roundToInt(s.rowSpan * rh) - g;
+        const int x = juce::roundToInt(s.col * cw), y = juce::roundToInt(rowY[size_t(s.row)]);
+        const int w = juce::roundToInt(s.colSpan * cw) - g, h = juce::roundToInt(rowY[size_t(s.row + s.rowSpan)]) - y - g;
         s.card->setScale(scale);
         s.card->setBounds(x, y, w, h);
     }
@@ -53,6 +58,8 @@ AmbientEditor::AmbientEditor(AmbientProcessor& p)
     header->onQualityChosen = [this](GraphicsQuality q) { setQuality(q); };
     header->isRenderStatsOn = [this] { return analyzer->isShowingStats(); };
     header->onRenderStatsChanged = [this](bool on) { analyzer->setShowStats(on); };
+    header->isMascotOn = [this] { return bool(settings.get("mascot", true)); };
+    header->onMascotChanged = [this](bool on) { setMascotAnimated(on); };
     content.addAndMakeVisible(*header);
 
     tabs.onChange = [this](int i) { showPage(i); };
@@ -93,6 +100,7 @@ AmbientEditor::AmbientEditor(AmbientProcessor& p)
     setSize(juce::jlimit(kMinW, kMaxW, w), juce::jlimit(kMinH, kMaxH, h));
 
     setQuality(settings.quality());
+    setMascotAnimated(bool(settings.get("mascot", true)));
 
     proc.editorOpen.store(true);
     lastTick = juce::Time::getMillisecondCounterHiRes();
@@ -111,6 +119,7 @@ void AmbientEditor::setQuality(GraphicsQuality q)
     settings.set(kUiQuality, int(q));
     lnf.setQuality(q);
     header->setQuality(q);
+    if (sidechain) sidechain->setQuality(q);
     analyzer->setQuality(q);
     // Standard: 30 Hz UI/analyzer refresh. High quality: 60 Hz.
     startTimerHz(q == GraphicsQuality::High ? 60 : 30);
@@ -127,45 +136,47 @@ void AmbientEditor::showPage(int index)
 void AmbientEditor::buildPages()
 {
     // ---- SOUND -------------------------------------------------------------
+    // Row 0: sound-source modules (placeholders until Stage 2). Row 1: Frequency Sidechain.
     auto& sound = pages[0];
     sound.cols = 3; sound.rows = 2;
+    sound.rowWeights = { 1.0f, 2.6f };
 #if AMBIENT_IS_INSTRUMENT
-    sound.add("Oscillators", Glyph::Oscillator, 0, 0, 2).setPlaceholder("Analog-modelled oscillators, sub and noise", 2);
-    sound.add("Filter", Glyph::Filter, 2, 0).setPlaceholder("Multimode filter", 2);
-    sound.add("Envelopes", Glyph::Envelope, 0, 1).setPlaceholder("Amplitude and modulation envelopes", 2);
-    auto& io = sound.add("Source & Input", Glyph::Input, 1, 1, 2);
-#else
-    sound.add("Synthesis", Glyph::Synth, 0, 0, 3).setPlaceholder("Oscillators live in the AmbientLab instrument. This FX version processes the track input.", 0);
-    auto& io = sound.add("Input", Glyph::Input, 0, 1, 3);
-#endif
-
-    inputKnob = std::make_unique<RotaryKnob>(proc.apvts, id(ids::inputGain), "Input");
-    io.addAndMakeVisible(*inputKnob);
-#if AMBIENT_IS_INSTRUMENT
-    mixKnob = std::make_unique<RotaryKnob>(proc.apvts, id(ids::sourceMix), "Synth / Input");
-    io.addAndMakeVisible(*mixKnob);
-    io.addAndMakeVisible(bypassSynth);
-    io.setHeaderLedVisible(false);
+    auto& osc = sound.add("Oscillators", Glyph::Oscillator, 0, 0);
+    osc.setPlaceholder("Analog-modelled oscillators, sub and noise", 2);
+    sound.add("Filter", Glyph::Filter, 1, 0).setPlaceholder("Multimode filter", 2);
+    sound.add("Envelopes", Glyph::Envelope, 2, 0).setPlaceholder("Amp and mod envelopes", 2);
+    // Synth bypass (existing parameter) lives on the Oscillators card header.
+    osc.addAndMakeVisible(bypassSynth);
+    osc.setHeaderLedVisible(false);
     bypassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(proc.apvts, id(ids::bypassSynth), bypassSynth);
+#else
+    sound.add("Synthesis", Glyph::Synth, 0, 0, 2).setPlaceholder("Oscillators live in the AmbientLab instrument", 0);
+    auto& track = sound.add("Track input", Glyph::Input, 2, 0);
+    inputKnob = std::make_unique<RotaryKnob>(proc.apvts, id(ids::inputGain), "Input");
+    inputKnob->setCompact(true);
+    track.addAndMakeVisible(*inputKnob);
 #endif
+    auto& sc = sound.add("Frequency sidechain", Glyph::Filter, 0, 1, 3);
+    sidechain = std::make_unique<SidechainPanel>(proc, settings);
+    sc.addAndMakeVisible(*sidechain);
+    sc.addAndMakeVisible(sidechain->getEnableButton());
+    sc.setHeaderLedVisible(false);
 
-    sound.layoutContents = [this, &io]
+    sound.layoutContents = [this, &sc]
     {
-        // Knobs shrink before anything overlaps.
-        auto c = io.getContentBounds().reduced(4, 0);
-        const int knobs = mixKnob ? 2 : 1;
-        const int perKnob = (c.getWidth() - 8 - (knobs - 1) * 16) / knobs;
-        const int d = juce::jlimit(36, 72, juce::jmin(perKnob - 28, c.getHeight() - 40));
-        const int kh = RotaryKnob::heightFor(d, false), kw = d + 28;
-        auto row = c.withSizeKeepingCentre(c.getWidth(), juce::jmin(c.getHeight(), kh));
-        row.removeFromLeft(8);
-        inputKnob->setBounds(row.removeFromLeft(kw));
-        if (mixKnob)
-        {
-            row.removeFromLeft(16);
-            mixKnob->setBounds(row.removeFromLeft(kw));
-            bypassSynth.setBounds(io.getHeaderControlBounds()); // small power button, header top-right
-        }
+        sidechain->setBounds(sc.getContentBounds().withTrimmedTop(4));
+        sidechain->getEnableButton().setBounds(sc.getHeaderControlBounds());
+       #if AMBIENT_IS_INSTRUMENT
+        if (auto* p = bypassSynth.getParentComponent())
+            if (auto* card = dynamic_cast<ModuleCard*>(p)) bypassSynth.setBounds(card->getHeaderControlBounds());
+       #else
+        if (auto* p = inputKnob->getParentComponent())
+            if (auto* card = dynamic_cast<ModuleCard*>(p))
+            {
+                auto c = card->getContentBounds();
+                inputKnob->setBounds(c.withSizeKeepingCentre(juce::jmin(90, c.getWidth()), juce::jmin(RotaryKnob::heightFor(40, true), c.getHeight())));
+            }
+       #endif
     };
 
     // ---- PROCESS -------------------------------------------------------------
@@ -187,6 +198,13 @@ void AmbientEditor::buildPages()
     auto& seq = pages[3];
     seq.add("Step sequencer", Glyph::Sequencer, 0, 0)
         .setPlaceholder("16/32 steps, gates, probability, ratchets, parameter locks and scale mode (16 scales, LFO-modulatable scale and root)", 7);
+}
+
+void AmbientEditor::setMascotAnimated(bool on)
+{
+    settings.set("mascot", on);
+    header->setMascotAnimated(on);
+    if (sidechain) sidechain->getMiniMascot().setAnimated(on);
 }
 
 void AmbientEditor::setAnalyzerFrozen(bool f)
@@ -211,6 +229,7 @@ void AmbientEditor::timerCallback()
     const bool fresh = hub.update(dt);
     analyzer->tick(fresh, dt);
     header->tick(dt);
+    if (sidechain) sidechain->tick(dt, pages[0].isVisible());
 }
 
 void AmbientEditor::paint(juce::Graphics& g)
@@ -257,6 +276,9 @@ void AmbientEditor::resized()
         const int aw = juce::jlimit(400, 900, juce::roundToInt(r.getWidth() * 0.40f));
         analyzer->setBounds(r.removeFromRight(aw));
         r.removeFromRight(theme::gap);
-        for (auto& pg : pages) { pg.scale = s; pg.setBounds(r); }
+        // Sound tab: on short layouts the placeholder row collapses to header strips
+        // so the Frequency Sidechain keeps a usable graph.
+        pages[0].rowWeights = r.getHeight() < 520 ? std::vector<float> { 0.12f, 1.0f } : std::vector<float> { 1.0f, 2.6f };
+        for (auto& pg : pages) { pg.scale = s; pg.setBounds(r); pg.resized(); }
     }
 }

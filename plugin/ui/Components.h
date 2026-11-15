@@ -87,7 +87,21 @@ class BypassButton : public juce::ToggleButton
 {
 public:
     explicit BypassButton(const juce::String& moduleName);
+    /** For *enable* parameters: the symbol glows when the toggle is ON. */
+    void setLitWhenOn(bool b) { litWhenOn = b; repaint(); }
     void paintButton(juce::Graphics&, bool highlighted, bool down) override;
+private:
+    bool litWhenOn = false;
+};
+
+/** Small pill toggle for boolean parameters (Auto, Listen, Delta ...). */
+class PillToggle : public juce::Button
+{
+public:
+    PillToggle(const juce::String& text, juce::Colour onColour);
+    void paintButton(juce::Graphics&, bool highlighted, bool down) override;
+private:
+    juce::Colour onColour;
 };
 
 // ============================================================================

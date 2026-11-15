@@ -1,4 +1,5 @@
 #include "Components.h"
+#include "Mascot.h"
 
 namespace ambient::ui
 {
@@ -282,6 +283,27 @@ void ModuleCard::paint(juce::Graphics& g)
     g.fillEllipse(ledR);
     }
 
+    // Compact placeholder (short layouts): stage badge in the header only.
+    if (isPlaceholder() && getContentBounds().getHeight() < 70)
+    {
+        if (stage > 0)
+        {
+            const auto label = "STAGE " + juce::String(stage);
+            const auto f = caption(10.0f * scale);
+            const float bw = textWidth(f, label) + 14.0f * scale;
+            const float rightInset = (headerLed ? 26.0f : 40.0f) * scale; // keep clear of LED / header button
+            auto badge = juce::Rectangle<float>(bw, 16.0f * scale).withCentre({ hdr.getRight() - rightInset - bw * 0.5f, hdr.getCentreY() });
+            const float titleEnd = tx + textWidth(heading(13.0f * scale, false, 0.07f), title) + 8.0f * scale;
+            if (titleEnd > badge.getX()) return; // not enough room: title wins
+            g.setColour(uvDeep.withAlpha(0.45f));
+            g.fillRoundedRectangle(badge, 8.0f * scale);
+            g.setColour(uvBright);
+            g.setFont(f);
+            g.drawText(label, badge, juce::Justification::centred);
+        }
+        return;
+    }
+
     // Placeholder: glyph, description, stage badge. No controls.
     if (isPlaceholder())
     {
@@ -333,7 +355,7 @@ BypassButton::BypassButton(const juce::String& moduleName) : ToggleButton("Bypas
 void BypassButton::paintButton(juce::Graphics& g, bool hi, bool down)
 {
     auto r = getLocalBounds().toFloat().reduced(0.5f);
-    const bool bypassed = getToggleState();
+    const bool bypassed = litWhenOn ? ! getToggleState() : getToggleState();
     const auto col = bypassed ? (hi ? theme::textDim : theme::textFaint) : theme::lime;
 
     if (hi || down)
@@ -356,6 +378,31 @@ void BypassButton::paintButton(juce::Graphics& g, bool hi, bool down)
     ring.lineTo(c.x, c.y - R * 0.1f);
     g.setColour(col);
     g.strokePath(ring, juce::PathStrokeType(juce::jmax(1.3f, r.getWidth() * 0.08f), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+}
+
+// ============================================================================
+// PillToggle
+// ============================================================================
+PillToggle::PillToggle(const juce::String& t, juce::Colour c) : Button(t), onColour(c)
+{
+    setClickingTogglesState(true);
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+}
+
+void PillToggle::paintButton(juce::Graphics& g, bool hi, bool down)
+{
+    auto r = getLocalBounds().toFloat().reduced(0.5f);
+    const bool on = getToggleState();
+    g.setColour(on ? onColour.withAlpha(0.18f) : (down ? panelHdr.brighter(0.1f) : (hi ? panelHdr : bgRaised)));
+    g.fillRoundedRectangle(r, r.getHeight() * 0.5f);
+    g.setColour(on ? onColour : (hi ? edgeHi : edge));
+    g.drawRoundedRectangle(r, r.getHeight() * 0.5f, 1.0f);
+    const float d = 5.0f;
+    g.setColour(on ? onColour : textFaint);
+    g.fillEllipse(juce::Rectangle<float>(d, d).withCentre({ r.getX() + 11.0f, r.getCentreY() }));
+    g.setFont(body(12.0f, Weight::Medium));
+    g.setColour(on ? juce::Colours::white : (hi ? theme::text : textDim));
+    g.drawFittedText(getButtonText(), r.withTrimmedLeft(19.0f).withTrimmedRight(6.0f).toNearestInt(), juce::Justification::centred, 1, 0.85f);
 }
 
 // ============================================================================
@@ -393,6 +440,13 @@ void TabBar::paint(juce::Graphics& g)
     g.fillRect(r);
     g.setColour(edge);
     g.drawHorizontalLine(r.getBottom() - 1, 0.0f, float(r.getRight()));
+
+    // small brand mark: the mascot as a quiet monochrome icon
+    {
+        Mascot::State st; st.mono = true;
+        auto icon = juce::Rectangle<float>(18.0f, 22.0f).withCentre({ float(r.getRight()) - 22.0f, float(r.getCentreY()) });
+        Mascot::draw(g, icon, st);
+    }
 
     const int w = tabWidth();
     g.setFont(heading(14.0f, false, 0.10f));

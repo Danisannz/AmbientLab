@@ -9,6 +9,8 @@ set(AMBIENT_PLUGIN_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/AmbientLookAndFeel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/Components.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/HeaderBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/Mascot.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/SidechainPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/AnalyzerView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/ScopeView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/StereoView.cpp

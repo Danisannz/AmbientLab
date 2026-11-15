@@ -3,6 +3,7 @@
 #include "ui/AnalyzerPanel.h"
 #include "ui/Backdrop.h"
 #include "ui/HeaderBar.h"
+#include "ui/SidechainPanel.h"
 #include "ui/UiSettings.h"
 #include "viz/VisualizerHub.h"
 
@@ -32,6 +33,7 @@ private:
     {
         struct Slot { std::unique_ptr<ambient::ui::ModuleCard> card; int col, row, colSpan, rowSpan; };
         int cols = 1, rows = 1;
+        std::vector<float> rowWeights; // optional relative row heights
         std::vector<Slot> slots;
         std::function<void()> layoutContents; // positions real controls inside cards
         ambient::ui::ModuleCard& add(const juce::String& title, ambient::ui::Glyph, int c, int r, int cs = 1, int rs = 1);
@@ -44,6 +46,7 @@ private:
     void setScale(float s);
     void showPage(int index);
     void setQuality(ambient::ui::GraphicsQuality q);
+    void setMascotAnimated(bool on);
 
     AmbientProcessor& proc;
     ambient::ui::UiSettings settings;
@@ -68,7 +71,8 @@ private:
     std::unique_ptr<ambient::ui::AnalyzerPanel> analyzer;
 
     // Real controls (only parameters that exist)
-    std::unique_ptr<ambient::ui::RotaryKnob> inputKnob, mixKnob;
+    std::unique_ptr<ambient::ui::RotaryKnob> inputKnob; // FX: track input gain
+    std::unique_ptr<ambient::ui::SidechainPanel> sidechain;
     ambient::ui::BypassButton bypassSynth { "Synth" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
 

@@ -4,6 +4,7 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "ui/Mascot.h"
 #include <ctime>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <algorithm>
@@ -23,29 +24,50 @@ struct Shot
 
 /** Stereo test programme: synth chord via MIDI + a decorrelated pad/noise on the sidechain. */
 int gSignal = 0;
+/** Feeds the processor through its real buses: kick reference on the aux sidechain
+    (bus 1), a decorrelated pad on the FX main input (bus 0). The instrument plays
+    its own synth chord (MIDI) as the internal signal. */
 void runAudio(AmbientProcessor& proc, double seconds, double sr, int block, juce::Random& rng, double& phase)
 {
-    juce::AudioBuffer<float> buf(2, block);
+    const int totalCh = juce::jmax(proc.getTotalNumInputChannels(), proc.getTotalNumOutputChannels(), 2);
+    juce::AudioBuffer<float> buf(totalCh, block);
     juce::MidiBuffer midi;
-    const int blocks = int(seconds * sr / block);
+    const int blocks = juce::jmax(1, int(seconds * sr / block));
+    const double period = sr * 60.0 / 145.0;
+    constexpr double twoPi = 2.0 * juce::MathConstants<double>::pi;
+    const bool hasMain = ! AMBIENT_IS_INSTRUMENT && proc.getBusCount(true) > 0 && proc.getBus(true, 0)->isEnabled();
+    const bool hasSc = proc.getBusCount(true) > 1 && proc.getBus(true, 1)->isEnabled();
+    static double kickPhase = 0.0;
     for (int b = 0; b < blocks; ++b)
     {
+        buf.clear();
+        juce::AudioBuffer<float> main, sc;
+        if (hasMain) main = proc.getBusBuffer(buf, true, 0);
+        if (hasSc) sc = proc.getBusBuffer(buf, true, 1);
         for (int i = 0; i < block; ++i)
         {
             const double t = phase / sr;
-            const float pad = 0.25f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 110.0 * t)
-                                             + 0.5 * std::sin(2.0 * juce::MathConstants<double>::pi * 331.0 * t));
-            const float n = 0.03f * (rng.nextFloat() * 2.0f - 1.0f);
-            const float lfo = float(std::sin(2.0 * juce::MathConstants<double>::pi * 0.3 * t));
-            buf.setSample(0, i, pad * (0.8f + 0.2f * lfo) + n);
-            buf.setSample(1, i, pad * (0.8f - 0.2f * lfo) * 0.9f
-                                + 0.12f * float(std::sin(2.0 * juce::MathConstants<double>::pi * 220.5 * t)) - n);
-            if (gSignal == 1) buf.setSample(1, i, buf.getSample(0, i));
-            if (gSignal == 2) buf.setSample(1, i, -buf.getSample(0, i));
+            if (hasMain && main.getNumChannels() >= 2)
+            {
+                const float pad = 0.25f * float(std::sin(twoPi * 55.0 * t) + 0.5 * std::sin(twoPi * 331.0 * t) + 0.3 * std::sin(twoPi * 880.0 * t));
+                const float n = 0.03f * (rng.nextFloat() * 2.0f - 1.0f);
+                const float lfo = float(std::sin(twoPi * 0.3 * t));
+                float l = pad * (0.8f + 0.2f * lfo) + n;
+                float r = pad * (0.8f - 0.2f * lfo) * 0.9f + 0.12f * float(std::sin(twoPi * 220.5 * t)) - n;
+                if (gSignal == 1) r = l;
+                if (gSignal == 2) r = -l;
+                main.setSample(0, i, l); main.setSample(1, i, r);
+            }
+            if (hasSc)
+            {
+                const double tk = std::fmod(phase, period) / sr;
+                kickPhase += twoPi * (52.0 + 90.0 * std::exp(-tk / 0.025)) / sr;
+                const float k = 0.8f * float(std::exp(-tk / 0.16) * std::sin(kickPhase)) + 0.15f * float(std::sin(twoPi * 110.0 * t)); // kick + bass
+                for (int c = 0; c < sc.getNumChannels(); ++c) sc.setSample(c, i, k);
+            }
             phase += 1.0;
         }
         proc.processBlock(buf, midi);
-        midi.clear();
         if (b % 4 == 0)
             juce::MessageManager::getInstance()->runDispatchLoopUntil(1);
     }
@@ -72,7 +94,7 @@ static int runBenchmark(const juce::String& filter)
     // Audio-thread cost of capture: processBlock with editor closed vs open.
     {
         AmbientProcessor proc; proc.enableAllBuses(); proc.setRateAndBufferSizeDetails(sr, block); proc.prepareToPlay(sr, block);
-        juce::AudioBuffer<float> buf(2, block); juce::MidiBuffer midi; juce::Random rng(1);
+        juce::AudioBuffer<float> buf(juce::jmax(proc.getTotalNumInputChannels(), proc.getTotalNumOutputChannels(), 2), block); juce::MidiBuffer midi; juce::Random rng(1);
         auto timeBlocks = [&](bool open)
         {
             proc.editorOpen.store(open);
@@ -98,8 +120,8 @@ static int runBenchmark(const juce::String& filter)
         auto st = proc.apvts.state.getOrCreateChildWithName("UI", nullptr);
         st.setProperty("an_mode", c.mode, nullptr); st.setProperty("an_expanded", c.expanded, nullptr);
         st.setProperty("quality", c.quality, nullptr);
-        juce::MidiBuffer chord; for (int note : { 57, 64, 69, 72 }) chord.addEvent(juce::MidiMessage::noteOn(1, note, 0.8f), 0);
-        juce::AudioBuffer<float> tmp(2, block); tmp.clear(); proc.processBlock(tmp, chord);
+        juce::MidiBuffer chord; for (int note : { 33, 57, 64, 69 }) chord.addEvent(juce::MidiMessage::noteOn(1, note, 0.8f), 0);
+        juce::AudioBuffer<float> tmp(juce::jmax(proc.getTotalNumInputChannels(), proc.getTotalNumOutputChannels(), 2), block); tmp.clear(); proc.processBlock(tmp, chord);
 
         std::unique_ptr<AmbientEditor> ed(dynamic_cast<AmbientEditor*>(proc.createEditor()));
         ed->setSize(1280, 800); ed->setOpaque(true);
@@ -248,6 +270,81 @@ static int runSelfTest()
         check(p.sidechainTelemetry().transientCount.load() == expected, "every kick detected exactly once through the sidechain bus");
     }
 
+    // Mascot synchronisation: poll telemetry at UI rate (60 Hz) while kicks arrive;
+    // every detected transient must produce exactly one reaction, nothing else.
+    {
+        AmbientProcessor p;
+        p.setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                    juce::AudioChannelSet::stereo()));
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        ambient::ui::Mascot mascot;
+        const int totalCh = juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels());
+        juce::AudioBuffer<float> buf(totalCh, block);
+        juce::MidiBuffer midi;
+        double ph = 0.0; size_t t = 0;
+        const size_t period = size_t(sr * 60.0 / 172.0); // fast psytrance tempo
+        const int blocksPerFrame = int(sr / 60.0 / block + 0.5);
+        uint32_t idleReactions = 0;
+        for (int b = 0; b < 600; ++b)
+        {
+            buf.clear();
+            auto sc = p.getBusBuffer(buf, true, 1);
+            const bool kicksOn = b >= 100; // first 1 s: silence -> idle only
+            for (int i = 0; i < block; ++i, ++t)
+            {
+                const double tt = double(t % period) / sr;
+                ph += 2.0 * kPi * (52.0 + 90.0 * std::exp(-tt / 0.025)) / sr;
+                const float k = kicksOn ? 0.8f * float(std::exp(-tt / 0.16) * std::sin(ph)) : 0.0f;
+                sc.setSample(0, i, k); sc.setSample(1, i, k);
+            }
+            p.processBlock(buf, midi);
+            if (b % juce::jmax(1, blocksPerFrame) == 0)
+            {
+                const auto& tl = p.sidechainTelemetry();
+                mascot.tick(1.0f / 60.0f, tl.transientCount.load(), tl.lastTransientStrength.load(),
+                            tl.referencePresent.load(), tl.maxReductionDb.load());
+            }
+            if (b == 99) idleReactions = mascot.getReactionCount();
+        }
+        const auto detected = p.sidechainTelemetry().transientCount.load();
+        std::printf("       transients detected: %u, mascot reactions: %u\n", detected, mascot.getReactionCount());
+        check(idleReactions == 0, "mascot idle without sidechain signal (no random reactions)");
+        check(mascot.getReactionCount() == detected && detected > 0, "mascot reacts exactly once per detected kick");
+    }
+
+    // CPU: processBlock cost with the frequency sidechain active (4 bands, Auto).
+    {
+        std::printf("       processBlock cost (sidechain active, 4 bands, Auto):\n");
+        for (double rate : { 44100.0, 48000.0, 96000.0, 192000.0 })
+            for (int bs : { 64, 512 })
+            {
+                AmbientProcessor p;
+                p.setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                            juce::AudioChannelSet::stereo()));
+                p.setRateAndBufferSizeDetails(rate, bs);
+                p.prepareToPlay(rate, bs);
+                for (int b = 0; b < 4; ++b) setParam(p, "sc.band" + juce::String(b + 1) + ".enable", 1.0f);
+                const int totalCh = juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels());
+                juce::AudioBuffer<float> buf(totalCh, bs);
+                juce::MidiBuffer midi; juce::Random rng(5);
+                const int blocks = int(rate * 2.0 / bs); // 2 s of audio
+                double t0 = 0.0;
+                for (int b = 0; b < blocks; ++b)
+                {
+                    buf.clear();
+                    auto sc = p.getBusBuffer(buf, true, 1);
+                    for (int c = 0; c < sc.getNumChannels(); ++c)
+                        for (int i = 0; i < bs; ++i) sc.setSample(c, i, 0.5f * (rng.nextFloat() - 0.5f));
+                    if (b == blocks / 4) t0 = juce::Time::getMillisecondCounterHiRes();
+                    p.processBlock(buf, midi);
+                }
+                const double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+                const double audioMs = (blocks - blocks / 4) * bs * 1000.0 / rate;
+                std::printf("         %6.1f kHz, block %4d: %5.2f %% of real time (one core)\n", rate / 1000.0, bs, 100.0 * ms / audioMs);
+            }
+    }
+
     // State: v1 session (no sc.* params) loads, migrates to v2, keeps known values.
     {
         AmbientProcessor p;
@@ -296,8 +393,6 @@ int main(int argc, char** argv)
         { "small_expanded_scope", 0, 0, true, 960, 600 },
         { "small_stereo", 2, 1, false, 960, 600 },
         { "stereo_lr_docked", 1, 1, false, 1280, 800, 1, { { "vs_display", 1 } } },
-        { "stereo_mono_input", 0, 1, true, 1280, 800, 1, { { "test_signal", 1 } } },
-        { "stereo_inverted",   0, 1, true, 1280, 800, 1, { { "test_signal", 2 } } },
         { "scope_mono_falling", 0, 0, false, 1280, 800, 1, { { "sc_view", 4 }, { "sc_time", 8.0 }, { "sc_trig", 2 }, { "sc_level", 0.2 }, { "sc_gain", 2.0 } } },
     };
     if (argc > 3) // optional filter: only shots whose name contains argv[3]
@@ -332,9 +427,9 @@ int main(int argc, char** argv)
 
         // MIDI chord for the test synth
         juce::MidiBuffer chord;
-        for (int note : { 57, 64, 69, 72 })
+        for (int note : { 33, 57, 64, 69 })
             chord.addEvent(juce::MidiMessage::noteOn(1, note, 0.8f), 0);
-        juce::AudioBuffer<float> tmp(2, block);
+        juce::AudioBuffer<float> tmp(juce::jmax(proc.getTotalNumInputChannels(), proc.getTotalNumOutputChannels(), 2), block);
         tmp.clear();
         proc.processBlock(tmp, chord);
 

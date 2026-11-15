@@ -1,6 +1,7 @@
 #pragma once
 #include "Backdrop.h"
 #include "Components.h"
+#include "Mascot.h"
 
 class AmbientProcessor;
 
@@ -23,6 +24,9 @@ public:
     std::function<void(GraphicsQuality)> onQualityChosen;
     std::function<void(bool)> onRenderStatsChanged;
     std::function<bool()> isRenderStatsOn;
+    std::function<void(bool)> onMascotChanged;
+    std::function<bool()> isMascotOn;
+    void setMascotAnimated(bool on) { mascot.setAnimated(on); }
 
     void paint(juce::Graphics&) override;
     void resized() override;
@@ -44,7 +48,8 @@ private:
 
     juce::TextButton presetMenuButton { "Reset" };
     GearButton settingsButton;
-    StatusLed midiLed { "MIDI" }, audioLed { "Audio in" };
+    StatusLed midiLed { "MIDI" }, audioLed { "Sidechain" };
+    Mascot mascot;
     RotaryKnob master;
     LevelMeter meter;
 

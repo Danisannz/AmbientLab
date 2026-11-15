@@ -23,7 +23,8 @@ HeaderBar::HeaderBar(AmbientProcessor& p, juce::Image img)
     addAndMakeVisible(master);
     addAndMakeVisible(meter);
     addAndMakeVisible(midiLed);
-    addAndMakeVisible(audioLed); // instrument: sidechain; FX: track input
+    addAndMakeVisible(audioLed); // sidechain reference level
+    addAndMakeVisible(mascot);
     addAndMakeVisible(presetMenuButton);
     addAndMakeVisible(settingsButton);
     presetMenuButton.onClick = [this] { showPresetMenu(); };
@@ -43,6 +44,11 @@ void HeaderBar::tick(float dt)
     audioLed.tick(dt);
 
     meter.setLevels(proc.peakL.load(std::memory_order_relaxed), proc.peakR.load(std::memory_order_relaxed), dt);
+
+    const auto& t = proc.sidechainTelemetry();
+    const bool scOn = proc.apvts.getRawParameterValue("sc.enable")->load() > 0.5f;
+    mascot.tick(dt, t.transientCount.load(std::memory_order_relaxed), t.lastTransientStrength.load(std::memory_order_relaxed),
+                scOn && t.referencePresent.load(std::memory_order_relaxed), t.maxReductionDb.load(std::memory_order_relaxed));
 
     if ((infoTimer += dt) >= 0.25f) // readouts at 4 Hz: readable and cheap
     {
@@ -82,6 +88,8 @@ void HeaderBar::showMainMenu()
     gfx.addItem(202, "High quality - full-resolution graphics, 60 fps analyzer", true, quality == GraphicsQuality::High);
     gfx.addSeparator();
     gfx.addItem(203, "Show render statistics", true, isRenderStatsOn && isRenderStatsOn());
+    gfx.addSeparator();
+    gfx.addItem(204, "Mascot animation (reacts to sidechain kicks)", true, isMascotOn && isMascotOn());
 
     juce::PopupMenu audio;
     audio.addItem(301, "No audio quality options yet - they arrive with the DSP engines", false, false);
@@ -100,6 +108,7 @@ void HeaderBar::showMainMenu()
                         else if (r == 201 && onQualityChosen) onQualityChosen(GraphicsQuality::Standard);
                         else if (r == 202 && onQualityChosen) onQualityChosen(GraphicsQuality::High);
                         else if (r == 203 && onRenderStatsChanged) onRenderStatsChanged(! (isRenderStatsOn && isRenderStatsOn()));
+                        else if (r == 204 && onMascotChanged) onMascotChanged(! (isMascotOn && isMascotOn()));
                     });
 }
 
@@ -169,6 +178,14 @@ void HeaderBar::resized()
     presetArea = pr.withWidth(juce::jmin(pr.getWidth(), 340)).withSizeKeepingCentre(juce::jmin(pr.getWidth(), 340), 46);
     presetArea.setX(r.getX());
     presetMenuButton.setBounds(presetArea.withLeft(presetArea.getRight() - 66).reduced(8, 10));
+
+    // Mascot: centred in the gap between the preset display and the status module.
+    {
+        const int gapL = presetArea.getRight() + 12, gapR = statusArea.getX() - 12;
+        const int mw = 54;
+        mascot.setVisible(gapR - gapL >= mw);
+        mascot.setBounds(juce::Rectangle<int>(mw, h + 4).withCentre({ (gapL + gapR) / 2, r.getCentreY() }));
+    }
 }
 
 void HeaderBar::paint(juce::Graphics& g)
