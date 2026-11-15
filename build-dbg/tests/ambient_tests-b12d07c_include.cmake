@@ -1,0 +1,5 @@
+if(EXISTS "/home/claude/ambientlab/build-dbg/tests/ambient_tests-b12d07c_tests.cmake")
+  include("/home/claude/ambientlab/build-dbg/tests/ambient_tests-b12d07c_tests.cmake")
+else()
+  add_test(ambient_tests_NOT_BUILT-b12d07c ambient_tests_NOT_BUILT-b12d07c)
+endif()

@@ -42,12 +42,13 @@ void Reverb::prepare(double sampleRate, int)
     erL.prepare(int(sr * 0.32) + 8);
     erR.prepare(int(sr * 0.32) + 8);
     for (auto& l : lines) l.prepare(int(sr * 0.40) + 64);
-    const int plateMax = int(4500.0 * sr / kPlateRate * 2.0) + 64;
-    for (auto& a : pIn) a.prepare(plateMax / 8);
+    // Plate lines: Dattorro lengths (at 29761 Hz) x rate x max size 2, + modulation excursion + margin.
+    const auto plateLen = [this](double n) { return int(std::ceil((n + 20.0) * sr / kPlateRate * 2.0)) + 16; };
+    for (auto& a : pIn) a.prepare(plateLen(379.0));
     for (int h = 0; h < 2; ++h)
     {
-        tankAp1[h].prepare(plateMax / 4); tankAp2[h].prepare(plateMax / 2);
-        tankD1[h].prepare(plateMax); tankD2[h].prepare(plateMax);
+        tankAp1[h].prepare(plateLen(908.0)); tankAp2[h].prepare(plateLen(2656.0));
+        tankD1[h].prepare(plateLen(4453.0)); tankD2[h].prepare(plateLen(3720.0));
     }
     for (auto& s : springs) s.loop.prepare(int(sr * 0.13) + 8);
     shiftBuf.prepare(int(sr * 0.12) + 8);
@@ -172,7 +173,8 @@ void Reverb::plate(float inL, float inR, float& outL, float& outR) noexcept
         y = tankLp[h] * decay;
         y = tankAp2[h].process(y, ap2Len[h] * k, 0.5f * diff);
         tankD2[h].push(y);
-        tankFb[h] = tankD2[h].read(int(d2Len[h] * k)) * decay;
+        const float fb = tankD2[h].read(int(d2Len[h] * k)) * decay;
+        tankFb[h] = std::fabs(fb) > 2.0f ? std::copysign(2.0f + std::tanh(std::fabs(fb) - 2.0f), fb) : fb; // safety knee
     }
     auto tap = [&](DelayLine& d, float n) { return d.read(std::max(1, int(n * k))); };
     outL = 0.6f * (tap(tankD1[1], 266) + tap(tankD1[1], 2974) - tap(tankAp2[1].d, 1913) + tap(tankD2[1], 1996)

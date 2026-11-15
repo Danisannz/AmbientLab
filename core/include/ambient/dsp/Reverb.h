@@ -16,6 +16,7 @@
 
 #include "Oscillator.h"
 #include <array>
+#include <cassert>
 #include <vector>
 
 namespace ambient::dsp
@@ -27,8 +28,14 @@ public:
     void prepare(int maxSamples) { buf.assign(size_t(maxSamples) + 4, 0.0f); size = int(buf.size()); w = 0; }
     void reset() { std::fill(buf.begin(), buf.end(), 0.0f); w = 0; }
     inline void push(float x) noexcept { buf[size_t(w)] = x; if (++w >= size) w = 0; }
-    /** Sample written `d` samples ago (d >= 1). */
-    inline float read(int d) const noexcept { int i = w - d; if (i < 0) i += size; return buf[size_t(i)]; }
+    /** Sample written `d` samples ago (1 <= d < size; asserted in debug, clamped always). */
+    inline float read(int d) const noexcept
+    {
+        assert(d >= 1 && d < size);
+        d = d < 1 ? 1 : (d >= size ? size - 1 : d);
+        int i = w - d; if (i < 0) i += size;
+        return buf[size_t(i)];
+    }
     inline float readFrac(float d) const noexcept
     {
         const int i = int(d); const float t = d - float(i);
