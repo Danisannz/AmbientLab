@@ -98,7 +98,13 @@ namespace rv
 {
 inline constexpr std::string_view on = "rv.on", algo = "rv.algo", decay = "rv.decay", predelay = "rv.predelay",
     size = "rv.size", diffusion = "rv.diffusion", damping = "rv.damping", early = "rv.early", mod = "rv.mod",
-    feedback = "rv.feedback", shimmer = "rv.shimmer", mix = "rv.mix", freeze = "rv.freeze";
+    feedback = "rv.feedback", shimmer = "rv.shimmer", mix = "rv.mix", freeze = "rv.freeze", width = "rv.width";
+}
+
+namespace out
+{
+inline constexpr std::string_view width = "out.width", bassMono = "out.bassMono", bassMonoHz = "out.bassMonoHz",
+    safety = "out.safety", floor = "out.floor", monoCheck = "out.monoCheck";
 }
 
 inline constexpr int kMaxVoices = 8;

@@ -79,7 +79,8 @@ private:
     std::unique_ptr<ambient::ui::EnvelopePanel> envPanel;
     std::unique_ptr<ambient::ui::GranularPanel> granularPanel;
     std::unique_ptr<ambient::ui::ReverbPanel> reverbPanel;
-    ambient::ui::SegmentedControl processSel { { "SIDECHAIN", "GRANULAR", "REVERB", "DELAY", "ROUTING" } };
+    std::unique_ptr<ambient::ui::StereoPanel> stereoPanel;
+    ambient::ui::SegmentedControl processSel { { "SIDECHAIN", "GRANULAR", "REVERB", "DELAY", "STEREO", "ROUTING" } };
     std::vector<ambient::ui::ModuleCard*> processCards;
     ambient::ui::BypassButton bypassSynth { "Synth" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;

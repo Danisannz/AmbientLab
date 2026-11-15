@@ -15,6 +15,7 @@
 // Real-time safe: prepare() allocates; process() never allocates.
 
 #include "Oscillator.h"
+#include "SideHighPass.h"
 #include <array>
 #include <cassert>
 #include <vector>
@@ -83,6 +84,7 @@ public:
         float shimmer = 0.5f;      // Shimmer algorithm: pitched feedback 0..1
         float mix = 0.3f;          // 0..1
         bool  freeze = false;
+        float width = 0.7f;        // 0 (mono wet) .. 1 (maximum: decorrelated, never systematically anti-phase)
     };
 
     void prepare(double sampleRate, int maxBlock);
@@ -138,6 +140,7 @@ private:
     float shiftPhase = 0.0f, shimmerState = 0.0f;
 
     // regeneration, smoothing
+    SideHighPass sideHp; float widthSmooth = 0.7f; // wet stereo stage (side crossover, width)
     float regenL = 0.0f, regenR = 0.0f, hpRegenL = 0.0f, hpRegenR = 0.0f;
     float wMix = 0.0f, wOn = 0.0f, wIn = 1.0f, smooth = 0.0f;
 };

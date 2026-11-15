@@ -1,3 +1,4 @@
+#include "../../tests/StereoMetrics.h"
 // Renders the AmbientLab editor in several states to PNG, feeding it real audio
 // through processBlock so the analyzer shows live data.
 // Usage: AmbientSnapshot <outputDir> [scale]
@@ -430,6 +431,55 @@ static int runSelfTest()
             }
     }
 
+    // Stereo: whole plugin output with each reverb algorithm, before (wide reverb, no safety)
+    // and after (defaults). Source: chord (instrument) or mono pad on the track input (FX).
+    {
+        auto render = [&](int algo, bool safeDefaults)
+        {
+            AmbientProcessor p;
+            p.setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                        juce::AudioChannelSet::stereo()));
+            p.setRateAndBufferSizeDetails(sr, 512);
+            p.prepareToPlay(sr, 512);
+            setParam(p, "rv.on", 1.0f); setParam(p, "rv.algo", float(algo)); setParam(p, "rv.mix", 0.5f);
+            if (! safeDefaults) { setParam(p, "rv.width", 1.0f); setParam(p, "out.safety", 0.0f); setParam(p, "out.bassMono", 0.0f); }
+            const int ch = juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels(), 2);
+            juce::AudioBuffer<float> buf(ch, 512);
+            juce::MidiBuffer on, off, none;
+            for (int nn : { 48, 55, 60, 64 }) on.addEvent(juce::MidiMessage::noteOn(1, nn, 0.8f), 0);
+            for (int nn : { 48, 55, 60, 64 }) off.addEvent(juce::MidiMessage::noteOff(1, nn), 0);
+            const int blocks = int(sr * 6.0 / 512), offBlock = int(sr * 2.0 / 512);
+            std::vector<float> L, R; long t = 0;
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+               #if ! AMBIENT_IS_INSTRUMENT
+                if (b < offBlock)
+                    for (int i = 0; i < 512; ++i)
+                    {
+                        double x = 0; for (double f : { 110.0, 164.8, 220.5, 277.2 }) x += 2.0 * std::fmod(f * double(t + i) / sr, 1.0) - 1.0;
+                        buf.setSample(0, i, float(0.1 * x)); buf.setSample(1, i, float(0.1 * x));
+                    }
+               #endif
+                p.processBlock(buf, b == 0 ? on : (b == offBlock ? off : none));
+                t += 512;
+                for (int i = 0; i < 512; ++i) { L.push_back(buf.getSample(0, i)); R.push_back(buf.getSample(1, i)); }
+            }
+            return stereo_test::measure(L, R, sr, size_t(sr * 0.5));
+        };
+        const char* names[] = { "Hall", "Room", "Cathedral", "Plate", "Spring", "Shimmer", "Infinite" };
+        std::printf("       output stereo (reverb mix 50 %%): before = width 100 %%, no safety, no bass mono | after = defaults\n");
+        bool ok = true;
+        for (int a = 0; a < 7; ++a)
+        {
+            const auto b = render(a, false), d = render(a, true);
+            std::printf("         %-10s corr %+5.2f -> %+5.2f   low %+5.2f -> %+5.2f   mono-sum %+5.2f -> %+5.2f dB   neg windows %3.0f%% -> %3.0f%%\n",
+                        names[a], b.corr, d.corr, b.lowCorr, d.lowCorr, b.monoLossDb, d.monoLossDb, 100 * b.negFraction, 100 * d.negFraction);
+            ok = ok && d.corr > 0.3 && d.lowCorr > 0.8 && d.negFraction < 0.05 && d.monoLossDb > -1.5;
+        }
+        check(ok, "output stereo with defaults: correlation > 0.3, bass > 0.8, < 5 % negative windows, mono loss < 1.5 dB");
+    }
+
     // State: v1 session (no sc.* params) loads, migrates to v2, keeps known values.
     {
         AmbientProcessor p;
@@ -582,6 +632,7 @@ int main(int argc, char** argv)
         { "small_stereo", 2, 1, false, 960, 600 },
         { "process_granular", 1, 2, false, 1280, 800, 1, { { "processModule", 1 } } },
         { "process_reverb", 1, 2, false, 1280, 800, 1, { { "processModule", 2 } } },
+        { "process_stereo", 1, 2, false, 1280, 800, 1, { { "processModule", 4 } } },
         { "stereo_lr_docked", 1, 1, false, 1280, 800, 1, { { "vs_display", 1 } } },
         { "scope_mono_falling", 0, 0, false, 1280, 800, 1, { { "sc_view", 4 }, { "sc_time", 8.0 }, { "sc_trig", 2 }, { "sc_level", 0.2 }, { "sc_gain", 2.0 } } },
     };

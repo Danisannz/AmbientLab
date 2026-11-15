@@ -7,6 +7,7 @@ add_executable(ambient_tests
     test_filter_env.cpp
     test_granular.cpp
     test_reverb.cpp
+    test_stereo.cpp
 )
 target_link_libraries(ambient_tests PRIVATE ambient_core Catch2::Catch2WithMain)
 find_package(Threads REQUIRED)

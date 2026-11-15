@@ -129,3 +129,20 @@ hosts have not been tested yet.
   stereo sidechain layouts accepted; latency 0; no leakage through the real buses;
   Listen; ducking within the default cap; every kick detected once; mascot reacts
   exactly once per kick and never while idle; v1 -> v2 state; CPU table above.
+
+
+## Detection fix (2026-11-14): sidechain bus inactive by default
+
+Hosting the built .vst3 through JUCE's VST3 host showed the aux "Sidechain" bus was
+declared inactive. Hosts that route audio without calling `activateBus()` delivered
+0 channels, so the detector never saw samples. The bus is now active by default in both
+targets (an unrouted sidechain receives silence). `tools/vst3host` (AmbientVst3HostTest)
+checks this end to end in CI: default activation, a host that never negotiates, stereo and
+mono sidechains, SC Listen arrival, no leakage, ducking, and a disabled sidechain.
+
+Diagnostics in the sidechain graph: bus on/off, channels read (and host buffer channels),
+raw RMS/peak, whether non-zero samples are arriving, detector gain reduction.
+
+Host notes: in Ableton Live, choose the source in the plugin's Sidechain section; in Reaper,
+route the send to channels 3/4; in FL Studio, select the source in the mixer's sidechain
+routing. Whether a host offers sidechain inputs to *instrument* plugins depends on the host.

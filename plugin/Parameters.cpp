@@ -221,6 +221,18 @@ Layout createParameterLayout()
         layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::shimmer), "Reverb Shimmer", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.5f, pctAttr));
         layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::mix), "Reverb Mix", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.3f, pctAttr));
         layout.add(std::make_unique<juce::AudioParameterBool>(P4(r::freeze), "Reverb Freeze", false));
+
+        // ---- Stereo safety (reverb width + output stage) ----
+        auto P5 = [&](std::string_view i) { return PID { id(i), 5 }; };
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P5(r::width), "Reverb Width", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.7f, pctAttr));
+        namespace so = ids::out;
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P5(so::width), "Output Width", juce::NormalisableRange<float> { 0.0f, 1.5f }, 1.0f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterBool>(P5(so::bassMono), "Bass Mono", true));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P5(so::bassMonoHz), "Bass Mono Freq", logRange(40.0f, 400.0f), 120.0f, hzAttr));
+        layout.add(std::make_unique<juce::AudioParameterBool>(P5(so::safety), "Stereo Safety", true));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P5(so::floor), "Correlation Floor", juce::NormalisableRange<float> { -0.5f, 0.5f, 0.01f }, 0.0f,
+            juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float x, int) { return (x >= 0 ? "+" : "") + juce::String(x, 2); })));
+        layout.add(std::make_unique<juce::AudioParameterBool>(P5(so::monoCheck), "Mono Check", false));
     }
 
     return layout;

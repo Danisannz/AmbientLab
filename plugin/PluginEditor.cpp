@@ -198,19 +198,24 @@ void AmbientEditor::buildPages()
     dly.setPlaceholder("Tape, BBD, digital, ping-pong, multi-tap, reverse, pitch and granular delays", 6);
     auto& rout = process.add("Routing", Glyph::Stereo, 0, 0);
     rout.setPlaceholder("Serial / parallel / flexible routing with safe feedback", 9);
-    processCards = { &sc, &gran, &rev, &dly, &rout };
+    auto& st = process.add("Stereo / output", Glyph::Stereo, 0, 0);
+    stereoPanel = std::make_unique<StereoPanel>(proc);
+    st.addAndMakeVisible(*stereoPanel);
+    st.addAndMakeVisible(stereoPanel->getPowerButton());
+    st.setHeaderLedVisible(false);
+    processCards = { &sc, &gran, &rev, &dly, &st, &rout };
     process.addAndMakeVisible(processSel);
     processSel.onChange = [this](int i)
     {
         settings.set("processModule", i);
         for (size_t k = 0; k < processCards.size(); ++k) processCards[k]->setVisible(int(k) == i);
     };
-    processSel.setSelected(juce::jlimit(0, 4, int(settings.get("processModule", 0))), false);
+    processSel.setSelected(juce::jlimit(0, 5, int(settings.get("processModule", 0))), false);
     processSel.onChange(processSel.getSelected());
-    process.layoutContents = [this, &process, &sc, &gran, &rev]
+    process.layoutContents = [this, &process, &sc, &gran, &rev, &st]
     {
         auto r = process.getLocalBounds();
-        processSel.setBounds(r.removeFromTop(30).withWidth(juce::jmin(r.getWidth(), 560)));
+        processSel.setBounds(r.removeFromTop(30).withWidth(juce::jmin(r.getWidth(), 672)));
         r.removeFromTop(6);
         for (auto* c : processCards) c->setBounds(r);
         sidechain->setBounds(sc.getContentBounds().withTrimmedTop(4));
@@ -219,6 +224,8 @@ void AmbientEditor::buildPages()
         granularPanel->getPowerButton().setBounds(gran.getHeaderControlBounds());
         reverbPanel->setBounds(rev.getContentBounds().withTrimmedTop(4));
         reverbPanel->getPowerButton().setBounds(rev.getHeaderControlBounds());
+        stereoPanel->setBounds(st.getContentBounds().withTrimmedTop(4));
+        stereoPanel->getPowerButton().setBounds(st.getHeaderControlBounds());
     };
 
     // ---- MODULATION ------------------------------------------------------------

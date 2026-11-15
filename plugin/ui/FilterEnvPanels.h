@@ -1,6 +1,7 @@
 #pragma once
 // Filter and Envelopes modules (Stage 3): every control maps to a real parameter.
 #include "OscillatorPanel.h"
+#include "../PluginProcessor.h"
 
 namespace ambient::ui
 {
@@ -64,5 +65,26 @@ private:
     std::unique_ptr<ParamSegment> algo;
     std::vector<std::unique_ptr<RotaryKnob>> time, character, out;
     RotaryKnob* shimmerKnob = nullptr;
+};
+
+/** Output stereo safety + monitor (bass mono, width, correlation floor, mono check). */
+class StereoPanel : public juce::Component, private juce::Timer
+{
+public:
+    explicit StereoPanel(AmbientProcessor&);
+    ~StereoPanel() override { stopTimer(); }
+    void resized() override;
+    void paint(juce::Graphics&) override;
+    juce::Button& getPowerButton() noexcept { return power; }
+private:
+    void timerCallback() override;
+    AmbientProcessor& proc;
+    BypassButton power { "Stereo safety" };
+    PillToggle bassMono { "Bass mono", theme::lime }, monoCheck { "Mono check", theme::uvBright };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerAtt, bassAtt, monoAtt;
+    std::vector<std::unique_ptr<RotaryKnob>> knobs;
+    juce::Rectangle<int> readout;
+    float corrIn = 1, corrOut = 1, midDb = -120, sideDb = -120, corrDb = 0;
+    bool anti = false;
 };
 } // namespace ambient::ui

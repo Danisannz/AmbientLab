@@ -71,6 +71,7 @@ void Reverb::reset()
     for (auto& s : springs) { s.apState.fill(0.0f); s.loop.reset(); s.lp = s.hp = s.hpIn = s.fb = 0.0f; }
     shiftBuf.reset(); shiftPhase = 0.0f; shimmerState = 0.0f;
     regenL = regenR = hpRegenL = hpRegenR = 0.0f;
+    sideHp.reset(); widthSmooth = std::clamp(params.width, 0.0f, 1.0f);
     wOn = params.on ? 1.0f : 0.0f; wMix = params.mix; wIn = params.freeze ? 0.0f : 1.0f;
     predelaySmooth = params.predelayMs;
 }
@@ -235,6 +236,7 @@ float Reverb::pitchShift(float x) noexcept
 
 void Reverb::process(float* L, float* R, int n) noexcept
 {
+    struct Flush { SideHighPass& f; ~Flush() { f.flushDenormals(); } } flush { sideHp };
     const auto& p = params;
     const float tOn = p.on ? 1.0f : 0.0f;
     if (! p.on && wOn < 1.0e-4f) { wOn = 0.0f; return; }
@@ -251,6 +253,16 @@ void Reverb::process(float* L, float* R, int n) noexcept
     const float diff = std::clamp(p.diffusion, 0.0f, 1.0f) * 0.75f;
     const float early = std::clamp(p.early, 0.0f, 1.0f);
     const float hpC = float(std::exp(-2.0 * 3.14159265 * 80.0 / sr));
+
+    // Wet stereo stage. Side level per algorithm calibrated (after the 180 Hz side high-pass)
+    // so that Width 1 = side ~1.5 dB below mid (correlation ~ +0.15: wide, never systematically
+    // anti-phase). Raw post-HP S/M on a mono pad: Hall -3.4, Room +0.5, Cathedral -7.3,
+    // Plate -1.6, Spring -2.5, Shimmer -3.4, Infinite -3.7 dB. Cathedral capped (naturally centred);
+    // Shimmer kept lower (pitch-shifted energy produces short anti-phase bursts).
+    static constexpr float kSideCal[7] = { 1.24f, 0.79f, 1.6f, 1.0f, 1.12f, 0.85f, 1.29f };
+    const float sideCal = kSideCal[std::clamp(int(p.algo), 0, 6)];
+    const float tWidth = std::clamp(p.width, 0.0f, 1.0f);
+    sideHp.setCutoff(180.0, sr);   // wet side removed below ~180 Hz: the reverb's bass stays mono
 
     for (int i = 0; i < n; ++i)
     {
@@ -300,6 +312,12 @@ void Reverb::process(float* L, float* R, int n) noexcept
         }
         if (p.algo != Algo::Plate) { wl += el * early * 0.3f; wr += er * early * 0.3f; }
 
+        {
+            widthSmooth += smooth * (tWidth - widthSmooth);
+            const float mid = 0.5f * (wl + wr), side = 0.5f * (wl - wr);
+            const float sHigh = sideHp.process(side) * sideCal * widthSmooth;
+            wl = mid + sHigh; wr = mid - sHigh;
+        }
         regenL = wl; regenR = wr;
         const float m = wOn * wMix;
         L[i] = dryL + m * (wl - dryL);

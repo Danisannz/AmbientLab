@@ -8,6 +8,7 @@
 #include <ambient/dsp/SynthEngine.h>
 #include <ambient/dsp/Granular.h>
 #include <ambient/dsp/Reverb.h>
+#include <ambient/dsp/StereoSafety.h>
 #include <ambient/ParamIDs.h>
 #include <array>
 
@@ -100,6 +101,12 @@ private:
     ambient::dsp::Reverb reverb;
     void readReverbParams();
     std::vector<std::atomic<float>*> rvRaw;
+    ambient::dsp::StereoSafety stereoSafety;
+    void readStereoParams();
+    std::vector<std::atomic<float>*> outRaw;
+public:
+    const ambient::dsp::StereoSafety::Telemetry& stereoTelemetry() const noexcept { return stereoSafety.telemetry(); }
+private:
     void readSynthParams();
     std::vector<std::atomic<float>*> oscRaw; // cached raw parameter pointers (filled in the constructor)
     juce::AudioBuffer<float> synthBuffer; // preallocated in prepareToPlay

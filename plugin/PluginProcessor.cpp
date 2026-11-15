@@ -67,8 +67,11 @@ AmbientProcessor::AmbientProcessor()
 
     namespace rid = ids::rv;
     for (auto g : { rid::on, rid::algo, rid::decay, rid::predelay, rid::size, rid::diffusion, rid::damping,
-                    rid::early, rid::mod, rid::feedback, rid::shimmer, rid::mix, rid::freeze })
+                    rid::early, rid::mod, rid::feedback, rid::shimmer, rid::mix, rid::freeze, rid::width })
         rvRaw.push_back(raw(g));
+    namespace oid = ids::out;
+    for (auto g : { oid::width, oid::bassMono, oid::bassMonoHz, oid::safety, oid::floor, oid::monoCheck })
+        outRaw.push_back(raw(g));
 }
 
 void AmbientProcessor::readReverbParams()
@@ -79,8 +82,16 @@ void AmbientProcessor::readReverbParams()
     p.algo = ambient::dsp::Reverb::Algo(juce::jlimit(0, 6, juce::roundToInt(v(1))));
     p.decay = v(2); p.predelayMs = v(3); p.size = v(4); p.diffusion = v(5); p.damping = v(6);
     p.early = v(7); p.modulation = v(8); p.feedback = v(9); p.shimmer = v(10); p.mix = v(11);
-    p.freeze = v(12) > 0.5f;
+    p.freeze = v(12) > 0.5f; p.width = v(13);
     reverb.setParams(p);
+}
+
+void AmbientProcessor::readStereoParams()
+{
+    ambient::dsp::StereoSafety::Params p;
+    auto v = [this](size_t i) { return outRaw[i]->load(); };
+    p.width = v(0); p.bassMono = v(1) > 0.5f; p.bassMonoHz = v(2); p.safety = v(3) > 0.5f; p.floor = v(4); p.monoCheck = v(5) > 0.5f;
+    stereoSafety.setParams(p);
 }
 
 void AmbientProcessor::readGranularParams()
@@ -158,6 +169,8 @@ void AmbientProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     granular.prepare(sampleRate, samplesPerBlock); // 10 s stereo buffer, allocated here only
     readReverbParams();
     reverb.prepare(sampleRate, samplesPerBlock);   // delay lines sized for size x2 at this rate, allocated here only
+    readStereoParams();
+    stereoSafety.prepare(sampleRate);
     for (auto* s : { &masterGain, &inputGain, &sourceMix }) s->prepare(sampleRate, 20.0f);
     masterGain.reset(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));
     inputGain.reset (juce::Decibels::decibelsToGain(pInputGain->load(),  -60.0f));
@@ -311,7 +324,11 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     readSidechainParams();
     ducker.process(intL, intR, hasRef ? refL : nullptr, hasRef ? refR : nullptr, n);
 
-    // ---- 5. Output -------------------------------------------------------------
+    // ---- 5. Stereo safety (bass mono, width, correlation floor), zero latency ----
+    readStereoParams();
+    stereoSafety.process(intL, intR, n);
+
+    // ---- 6. Output -------------------------------------------------------------
     masterGain.setTarget(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));
     float peak = 0.0f, pkL = 0.0f, pkR = 0.0f, pkIn = 0.0f;
     float* L = buffer.getWritePointer(0);

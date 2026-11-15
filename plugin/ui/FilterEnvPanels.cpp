@@ -180,6 +180,7 @@ ReverbPanel::ReverbPanel(juce::AudioProcessorValueTreeState& s) : state(s)
     out.push_back(knob(*this, s, rv::shimmer, "Shimmer"));
     shimmerKnob = out.back().get();
     shimmerKnob->getSlider().setTooltip("Octave-up regeneration (Shimmer algorithm only)");
+    out.push_back(knob(*this, s, rv::width, "Width"));
     out.push_back(knob(*this, s, rv::mix, "Mix"));
     timerCallback();
     startTimerHz(10);
@@ -233,5 +234,82 @@ void ReverbPanel::paint(juce::Graphics& gr)
     label(time, "TIME / SPACE");
     label(character, "CHARACTER");
     label(out, "FEEDBACK / OUTPUT");
+}
+
+namespace so = ambient::ids::out;
+
+StereoPanel::StereoPanel(AmbientProcessor& p) : proc(p)
+{
+    auto& s = p.apvts;
+    power.setLitWhenOn(true);
+    power.setTooltip("Stereo safety: keeps the output correlation above the floor (reduces side only when needed)");
+    powerAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(s, id(so::safety), power);
+    for (auto* t : { &bassMono, &monoCheck }) addAndMakeVisible(*t);
+    bassMono.setTooltip("Remove side (L-R) energy below the bass-mono frequency");
+    monoCheck.setTooltip("Monitor: output (L+R)/2 on both channels");
+    bassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(s, id(so::bassMono), bassMono);
+    monoAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(s, id(so::monoCheck), monoCheck);
+    knobs.push_back(knob(*this, s, so::width, "Width"));
+    knobs.push_back(knob(*this, s, so::floor, "Corr floor", true));
+    knobs.push_back(knob(*this, s, so::bassMonoHz, "Bass mono"));
+    startTimerHz(15);
+}
+
+void StereoPanel::timerCallback()
+{
+    const auto& t = proc.stereoTelemetry();
+    corrIn = t.corrIn.load(std::memory_order_relaxed);
+    corrOut = t.corrOut.load(std::memory_order_relaxed);
+    midDb = t.midDb.load(std::memory_order_relaxed);
+    sideDb = t.sideDb.load(std::memory_order_relaxed);
+    corrDb = std::max(t.correctionDb.load(std::memory_order_relaxed), corrDb * 0.85f); // short hold for readability
+    anti = t.antiPhase.load(std::memory_order_relaxed);
+    repaint(readout);
+}
+
+void StereoPanel::resized()
+{
+    auto r = getLocalBounds();
+    auto top = r.removeFromTop(30).withSizeKeepingCentre(r.getWidth(), 26);
+    bassMono.setBounds(top.removeFromLeft(110)); top.removeFromLeft(10);
+    monoCheck.setBounds(top.removeFromLeft(110));
+    r.removeFromTop(10);
+    const int kw = juce::jmin(84, r.getWidth() / 8);
+    const int d = juce::jlimit(36, 60, kw - 20);
+    auto row = r.withHeight(juce::jmin(r.getHeight(), RotaryKnob::heightFor(d, true) + 18)).withTrimmedTop(26);
+    for (auto& k : knobs) k->setBounds(row.removeFromLeft(kw));
+    row.removeFromLeft(24);
+    readout = row.withWidth(juce::jmin(row.getWidth(), 420));
+}
+
+void StereoPanel::paint(juce::Graphics& gr)
+{
+    gr.setFont(caption(10.5f));
+    gr.setColour(textFaint);
+    if (! knobs.empty())
+    {
+        const auto a = knobs.front()->getBounds(), b = knobs.back()->getBounds();
+        gr.drawText("OUTPUT STEREO", juce::Rectangle<int>(a.getX(), a.getY() - 18, b.getRight() - a.getX(), 14), juce::Justification::centredLeft);
+        gr.setColour(edge);
+        gr.drawHorizontalLine(a.getY() - 3, float(a.getX()), float(b.getRight()));
+    }
+    auto r = readout;
+    gr.setColour(textFaint);
+    gr.drawText("MONITOR", r.removeFromTop(14).translated(0, -18), juce::Justification::centredLeft);
+    auto line = [&](const juce::String& k, const juce::String& v, juce::Colour c)
+    {
+        auto l = r.removeFromTop(18);
+        gr.setColour(textDim); gr.setFont(caption(10.5f));
+        gr.drawText(k, l.removeFromLeft(150), juce::Justification::centredLeft);
+        gr.setColour(c); gr.setFont(body(12.0f));
+        gr.drawText(v, l, juce::Justification::centredLeft);
+    };
+    auto cc = [](float c) { return c < 0.0f ? juce::Colour(0xffff4d6d) : (c < 0.3f ? juce::Colour(0xffffc04d) : lime); };
+    auto f2 = [](float x) { return (x >= 0 ? "+" : "") + juce::String(x, 2); };
+    line("CORRELATION IN", f2(corrIn), cc(corrIn));
+    line("CORRELATION OUT", f2(corrOut), cc(corrOut));
+    line("MID / SIDE", juce::String(midDb, 1) + " / " + juce::String(sideDb, 1) + " dB", textDim);
+    line("SIDE CORRECTION", corrDb > 0.05f ? "-" + juce::String(corrDb, 1) + " dB" : juce::String("none"), corrDb > 0.05f ? uvBright : textDim);
+    if (anti) line("WARNING", "ANTI-PHASE CONTENT DETECTED", juce::Colour(0xffff4d6d));
 }
 } // namespace ambient::ui
