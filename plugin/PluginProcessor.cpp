@@ -52,6 +52,10 @@ AmbientProcessor::AmbientProcessor()
     for (auto g : { o::fm, o::pm, o::subOn, o::subWave, o::subOctave, o::subLevel, o::noiseOn, o::noiseType,
                     o::noiseLevel, o::drift, o::satMode, o::satDrive, o::satMix, o::velocity })
         oscRaw.push_back(raw(g));
+    namespace f = ids::flt; namespace e = ids::env; // indices 38..54
+    for (auto g : { f::on, f::mode, f::cutoff, f::reso, f::drive, f::env, f::key, f::vel,
+                    e::ampA, e::ampD, e::ampS, e::ampR, e::modA, e::modD, e::modS, e::modR, e::modPitch })
+        oscRaw.push_back(raw(g));
 }
 
 void AmbientProcessor::readSynthParams()
@@ -81,6 +85,11 @@ void AmbientProcessor::readSynthParams()
     p.drift = v(33);
     p.satMode = juce::roundToInt(v(34)); p.satDrive = v(35); p.satMix = v(36);
     p.velocitySens = v(37);
+    p.filterOn = v(38) > 0.5f; p.filterMode = juce::roundToInt(v(39)); p.cutoff = v(40); p.resonance = v(41);
+    p.filterDrive = v(42); p.filterEnv = v(43); p.keytrack = v(44); p.velToCutoff = v(45);
+    p.ampEnv = { v(46), v(47), v(48), v(49) };
+    p.modEnv = { v(50), v(51), v(52), v(53) };
+    p.modEnvPitch = v(54);
     synth.setParams(p);
 }
 

@@ -73,5 +73,18 @@ inline constexpr std::string_view satMode = "osc.sat.mode", satDrive = "osc.sat.
 inline constexpr std::string_view velocity = "osc.velocity";
 } // namespace osc
 
+// Filter + envelopes (Stage 3)
+namespace flt
+{
+inline constexpr std::string_view on = "flt.on", mode = "flt.mode", cutoff = "flt.cutoff", reso = "flt.reso",
+                                  drive = "flt.drive", env = "flt.env", key = "flt.key", vel = "flt.vel";
+}
+namespace env
+{
+inline constexpr std::string_view ampA = "env.amp.a", ampD = "env.amp.d", ampS = "env.amp.s", ampR = "env.amp.r";
+inline constexpr std::string_view modA = "env.mod.a", modD = "env.mod.d", modS = "env.mod.s", modR = "env.mod.r";
+inline constexpr std::string_view modPitch = "env.mod.pitch";
+}
+
 inline constexpr int kMaxVoices = 8;
 } // namespace ambient::ids

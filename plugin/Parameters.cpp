@@ -71,7 +71,7 @@ Layout createParameterLayout()
         .withStringFromValueFunction([](float x, int) { return x >= 1000.0f ? juce::String(x / 1000.0f, 2) + " kHz" : juce::String(juce::roundToInt(x)) + " Hz"; })
         .withValueFromStringFunction([](const juce::String& t) { return t.getFloatValue() * (t.containsIgnoreCase("k") ? 1000.0f : 1.0f); });
     auto msAttr = juce::AudioParameterFloatAttributes().withLabel("ms")
-        .withStringFromValueFunction([](float x, int) { return x < 10.0f ? juce::String(x, 1) + " ms" : juce::String(juce::roundToInt(x)) + " ms"; })
+        .withStringFromValueFunction([](float x, int) { return x >= 1000.0f ? juce::String(x / 1000.0f, x >= 10000.0f ? 1 : 2) + " s" : (x < 10.0f ? juce::String(x, 1) + " ms" : juce::String(juce::roundToInt(x)) + " ms"); })
         .withValueFromStringFunction([](const juce::String& t) { return t.getFloatValue(); });
     auto logRange = [](float lo, float hi) { juce::NormalisableRange<float> r { lo, hi }; r.setSkewForCentre(std::sqrt(lo * hi)); return r; };
 
@@ -158,6 +158,32 @@ Layout createParameterLayout()
         layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::satDrive), "Saturation Drive", juce::NormalisableRange<float> { 0.0f, 36.0f, 0.1f }, 0.0f, dbAttr("dB")));
         layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::satMix), "Saturation Mix", juce::NormalisableRange<float> { 0.0f, 1.0f }, 1.0f, pctAttr));
         layout.add(std::make_unique<juce::AudioParameterFloat>(P3(o::velocity), "Velocity Sensitivity", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.6f, pctAttr));
+
+        // ---- Filter + envelopes (Stage 3) ----
+        namespace f = ids::flt; namespace e = ids::env;
+        auto bip = juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction([](float x, int) { return (x > 0.005f ? "+" : "") + juce::String(juce::roundToInt(x * 100.0f)) + " %"; });
+        auto oct = juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction([](float x, int) { return (x > 0.05f ? "+" : "") + juce::String(x, 1) + " st"; });
+        layout.add(std::make_unique<juce::AudioParameterBool>(P3(f::on), "Filter On", true));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(P3(f::mode), "Filter Mode", juce::StringArray { "LP24", "LP12", "BP", "HP12", "HP24", "Notch" }, 0));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(f::cutoff), "Cutoff", logRange(20.0f, 20000.0f), 6000.0f, hzAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(f::reso), "Resonance", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.2f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(f::drive), "Filter Drive", juce::NormalisableRange<float> { 0.0f, 24.0f, 0.1f }, 0.0f, dbAttr("dB")));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(f::env), "Filter Env Amount", juce::NormalisableRange<float> { -1.0f, 1.0f }, 0.25f, bip));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(f::key), "Keytracking", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.5f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(f::vel), "Velocity > Cutoff", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.0f, pctAttr));
+        auto envTime = [&](std::string_view pid, const char* name, float lo, float hi, float def)
+        { layout.add(std::make_unique<juce::AudioParameterFloat>(P3(pid), name, logRange(lo, hi), def, msAttr)); };
+        envTime(e::ampA, "Amp Attack", 0.5f, 20000.0f, 8.0f);
+        envTime(e::ampD, "Amp Decay", 1.0f, 20000.0f, 400.0f);
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(e::ampS), "Amp Sustain", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.8f, pctAttr));
+        envTime(e::ampR, "Amp Release", 1.0f, 30000.0f, 800.0f);
+        envTime(e::modA, "Mod Attack", 0.5f, 20000.0f, 10.0f);
+        envTime(e::modD, "Mod Decay", 1.0f, 20000.0f, 900.0f);
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(e::modS), "Mod Sustain", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.2f, pctAttr));
+        envTime(e::modR, "Mod Release", 1.0f, 30000.0f, 900.0f);
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P3(e::modPitch), "Mod Env > Pitch", juce::NormalisableRange<float> { -24.0f, 24.0f, 0.01f }, 0.0f, oct));
     }
 
     return layout;

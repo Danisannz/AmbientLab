@@ -138,7 +138,7 @@ void AmbientEditor::buildPages()
     // ---- SOUND: sound generation -------------------------------------------
     auto& sound = pages[0];
     sound.cols = 2; sound.rows = 2;
-    sound.rowWeights = { 2.4f, 1.0f };
+    sound.rowWeights = { 1.7f, 1.0f };
 #if AMBIENT_IS_INSTRUMENT
     auto& osc = sound.add("Oscillators", Glyph::Oscillator, 0, 0, 2);
     oscillators = std::make_unique<OscillatorPanel>(proc.apvts);
@@ -146,12 +146,21 @@ void AmbientEditor::buildPages()
     osc.addAndMakeVisible(bypassSynth); // synth bypass (existing parameter) on the card header
     osc.setHeaderLedVisible(false);
     bypassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(proc.apvts, id(ids::bypassSynth), bypassSynth);
-    sound.add("Filter", Glyph::Filter, 0, 1).setPlaceholder("Multimode filter with drive and modulation", 3);
-    sound.add("Envelopes", Glyph::Envelope, 1, 1).setPlaceholder("ADSR amplitude and modulation envelopes", 3);
-    sound.layoutContents = [this, &osc]
+    auto& flt = sound.add("Filter", Glyph::Filter, 0, 1);
+    filterPanel = std::make_unique<FilterPanel>(proc.apvts);
+    flt.addAndMakeVisible(*filterPanel);
+    flt.addAndMakeVisible(filterPanel->getPowerButton());
+    flt.setHeaderLedVisible(false);
+    auto& envs = sound.add("Envelopes", Glyph::Envelope, 1, 1);
+    envPanel = std::make_unique<EnvelopePanel>(proc.apvts);
+    envs.addAndMakeVisible(*envPanel);
+    sound.layoutContents = [this, &osc, &flt, &envs]
     {
         oscillators->setBounds(osc.getContentBounds().withTrimmedTop(2));
         bypassSynth.setBounds(osc.getHeaderControlBounds());
+        filterPanel->setBounds(flt.getContentBounds());
+        filterPanel->getPowerButton().setBounds(flt.getHeaderControlBounds());
+        envPanel->setBounds(envs.getContentBounds());
     };
 #else
     sound.add("Synthesis", Glyph::Synth, 0, 0, 1).setPlaceholder("Oscillators live in the AmbientLab instrument", 0);
@@ -280,7 +289,7 @@ void AmbientEditor::resized()
         // Short layouts: placeholder rows collapse to header strips so real modules keep their space.
         const bool shortLayout = r.getHeight() < 520;
        #if AMBIENT_IS_INSTRUMENT
-        pages[0].rowWeights = shortLayout ? std::vector<float> { 1.0f, 0.12f } : std::vector<float> { 2.4f, 1.0f };
+        pages[0].rowWeights = shortLayout ? std::vector<float> { 1.5f, 1.0f } : std::vector<float> { 1.7f, 1.0f };
        #endif
         pages[1].rowWeights = shortLayout ? std::vector<float> { 1.0f, 0.12f } : std::vector<float> { 2.6f, 1.0f };
         for (auto& pg : pages) { pg.scale = s; pg.setBounds(r); pg.resized(); }
