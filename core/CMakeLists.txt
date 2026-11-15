@@ -8,6 +8,7 @@ add_library(ambient_core STATIC
     src/dsp/StereoSafety.cpp
     src/dsp/Delay.cpp
     src/dsp/Lfo.cpp
+    src/dsp/Sequencer.cpp
 )
 target_include_directories(ambient_core PUBLIC include)
 target_compile_features(ambient_core PUBLIC cxx_std_20)

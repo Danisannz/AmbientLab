@@ -10,6 +10,7 @@ add_executable(ambient_tests
     test_stereo.cpp
     test_delay.cpp
     test_lfo.cpp
+    test_sequencer.cpp
 )
 target_link_libraries(ambient_tests PRIVATE ambient_core Catch2::Catch2WithMain)
 find_package(Threads REQUIRED)
