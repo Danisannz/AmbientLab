@@ -68,6 +68,11 @@ AmbientProcessor::AmbientProcessor()
         for (auto f : { "src", "dst", "amt" })
             mmRaw.push_back(apvts.getRawParameterValue("mm." + juce::String(m) + "." + f));
     for (size_t i = 0; i < 8; ++i) macroRaw[i] = apvts.getRawParameterValue(id(ids::macros[i]));
+    for (auto f : { "on", "clock", "bpm", "length", "division", "swing", "direction", "root", "scale", "octave", "transpose", "gate", "patternStart" })
+        seqRaw.push_back(rawId("seq." + juce::String(f)));
+    for (int l = 0; l < 4; ++l) seqLockDst[size_t(l)] = apvts.getRawParameterValue("seq.lock" + juce::String(l + 1));
+    seqModel.loadPresetPattern(0);   // default pattern (sequencer itself is off by default)
+    publishPattern();
     scParams.enable = raw(ids::sc::enable);       scParams.inputGain = raw(ids::sc::inputGain);
     scParams.sensitivity = raw(ids::sc::sensitivity); scParams.threshold = raw(ids::sc::threshold);
     scParams.depth = raw(ids::sc::depth);         scParams.mix = raw(ids::sc::mix);
@@ -218,6 +223,10 @@ void AmbientProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     readDelayParams();
     delay.prepare(sampleRate, samplesPerBlock);    // 8 s stereo buffer, allocated here only
     for (auto& l : lfos) l.prepare(sampleRate);
+    sequencer.prepare(sampleRate);
+    seqPattern.update();
+    for (int i = 0; i < ambient::dsp::Sequencer::kMaxSteps; ++i) sequencer.setStep(i, seqPattern.front()[size_t(i)]);
+    seqNotesOn = 0;
     for (auto* s : { &masterGain, &inputGain, &sourceMix }) s->prepare(sampleRate, 20.0f);
     masterGain.reset(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));
     inputGain.reset (juce::Decibels::decibelsToGain(pInputGain->load(),  -60.0f));
@@ -280,6 +289,92 @@ void AmbientProcessor::handleMidi(const juce::MidiMessage& m)
     else if (m.isPitchWheel())                         midiBend = juce::jlimit(-1.0f, 1.0f, float(m.getPitchWheelValue() - 8192) / 8191.0f);
 }
 
+void AmbientProcessor::publishPattern() noexcept
+{
+    auto& b = seqPattern.back();
+    for (int i = 0; i < ambient::dsp::Sequencer::kMaxSteps; ++i) b[size_t(i)] = seqModel.getStep(i);
+    seqPattern.publish();
+}
+
+void AmbientProcessor::loadSeqPreset(int index)
+{
+    const auto info = seqModel.loadPresetPattern(index);
+    publishPattern();
+    auto set = [this](const juce::String& pid, float plain) { if (auto* p = apvts.getParameter(pid)) p->setValueNotifyingHost(p->convertTo0to1(plain)); };
+    set("seq.length", float(info.length));
+    set("seq.division", float(info.division));
+    set("seq.swing", info.swing);
+    set("seq.direction", float(int(info.direction)));
+    if (info.scale >= 0) set("seq.scale", float(info.scale));
+}
+
+void AmbientProcessor::randomiseSeq(float amount)
+{
+    seqModel.randomise(juce::Random::getSystemRandom().nextInt() | 1u, amount);
+    publishPattern();
+}
+
+juce::ValueTree AmbientProcessor::patternToTree() const
+{
+    juce::ValueTree t("SEQPATTERN");
+    for (int i = 0; i < ambient::dsp::Sequencer::kMaxSteps; ++i)
+    {
+        const auto& st = seqModel.getStep(i);
+        juce::ValueTree c("STEP");
+        c.setProperty("i", i, nullptr);
+        c.setProperty("on", st.active, nullptr);   c.setProperty("note", st.note, nullptr);
+        c.setProperty("vel", st.velocity, nullptr); c.setProperty("gate", st.gate, nullptr);
+        c.setProperty("prob", st.probability, nullptr); c.setProperty("rat", st.ratchet, nullptr);
+        c.setProperty("skip", st.skip, nullptr);
+        for (int l = 0; l < 4; ++l)
+            if (! std::isnan(st.locks[size_t(l)])) c.setProperty("l" + juce::String(l), st.locks[size_t(l)], nullptr);
+        t.appendChild(c, nullptr);
+    }
+    return t;
+}
+
+void AmbientProcessor::patternFromTree(const juce::ValueTree& t)
+{
+    if (! t.isValid()) return;
+    for (const auto& c : t)
+    {
+        const int i = c.getProperty("i", -1);
+        if (i < 0 || i >= ambient::dsp::Sequencer::kMaxSteps) continue;
+        ambient::dsp::Sequencer::Step st = seqModel.getStep(i);
+        st.active = c.getProperty("on", st.active);       st.note = c.getProperty("note", st.note);
+        st.velocity = c.getProperty("vel", st.velocity);  st.gate = c.getProperty("gate", st.gate);
+        st.probability = c.getProperty("prob", st.probability); st.ratchet = c.getProperty("rat", st.ratchet);
+        st.skip = c.getProperty("skip", st.skip);
+        for (int l = 0; l < 4; ++l)
+        {
+            const auto key = "l" + juce::String(l);
+            st.locks[size_t(l)] = c.hasProperty(key) ? float(c.getProperty(key)) : std::numeric_limits<float>::quiet_NaN();
+        }
+        seqModel.setStep(i, st);
+    }
+    publishPattern();
+}
+
+void AmbientProcessor::readSequencerParams() noexcept
+{
+    using S = ambient::dsp::Sequencer;
+    S::Params p;
+    auto v = [this](size_t i) { return seqRaw[i].load(); };
+    auto rawOf = [this](size_t i) { return seqRaw[i].raw->load(std::memory_order_relaxed); };
+    p.length = juce::jlimit(1, 32, juce::roundToInt(v(3)));
+    p.division = juce::roundToInt(v(4));
+    p.swing = v(5);
+    p.direction = S::Direction(juce::jlimit(0, 3, juce::roundToInt(v(6))));
+    // root / scale: the raw value is the base, matrix modulation becomes the (step-latched) offset
+    p.root = juce::roundToInt(rawOf(7));   p.rootMod = v(7) - rawOf(7);
+    p.scale = juce::roundToInt(rawOf(8));  p.scaleMod = v(8) - rawOf(8);
+    p.baseNote = 24 + 12 * juce::roundToInt(v(9));
+    p.transpose = juce::roundToInt(v(10));
+    p.gateScale = v(11);
+    p.changeOnPatternStartOnly = v(12) > 0.5f;
+    sequencer.setParams(p);
+}
+
 void AmbientProcessor::updateModulation(int startSample, int numSamples) noexcept
 {
     using namespace ambient;
@@ -306,6 +401,9 @@ void AmbientProcessor::updateModulation(int startSample, int numSamples) noexcep
     srcValue[modsrc::Aftertouch] = midiAftertouch; srcValue[modsrc::PitchBend] = midiBend;
     srcValue[modsrc::NoteKey] = midiKey;        srcValue[modsrc::NoteRandom] = midiRandom;
     for (int i = 0; i < 7; ++i) srcValue[size_t(modsrc::ScEnvelope + i)] = ducker.getModOutput(i);   // previous sub-block
+    srcValue[modsrc::SeqGate] = seqNotesOn > 0 ? 1.0f : 0.0f;
+    srcValue[modsrc::SeqVelocity] = seqLastVelocity;
+    srcValue[modsrc::SeqStep] = sequencer.currentStep() >= 0 ? float(sequencer.currentStep()) / float(juce::jmax(1, sequencer.getParams().length - 1)) : 0.0f;
     srcValue[modsrc::None] = 0.0f;
 
     // 3. Matrix
@@ -330,6 +428,15 @@ void AmbientProcessor::updateModulation(int startSample, int numSamples) noexcep
         auto* prm = destParam[k];
         modValue[k] = prm->convertFrom0to1(juce::jlimit(0.0f, 1.0f, prm->convertTo0to1(v) + off));
     }
+    // 5. Sequencer parameter locks: a locked step SETS its lane's target (normalised 0..1)
+    if (seqRaw[0].load() > 0.5f)
+        for (int l = 0; l < 4; ++l)
+        {
+            const int d = juce::roundToInt(seqLockDst[size_t(l)]->load(std::memory_order_relaxed));
+            const float lv = sequencer.lockValue(l);
+            if (d > 0 && d <= moddest::kNumDestinations && ! std::isnan(lv))
+                modValue[size_t(d - 1)] = destParam[size_t(d - 1)]->convertFrom0to1(juce::jlimit(0.0f, 1.0f, lv));
+        }
 }
 
 void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -401,6 +508,10 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
    #endif
     if (! hasMain) { juce::FloatVectorOperations::clear(intL, n); juce::FloatVectorOperations::clear(intR, n); }
 
+    // newest step pattern from the editor (lock-free triple buffer)
+    if (seqPattern.update())
+        for (int i = 0; i < ambient::dsp::Sequencer::kMaxSteps; ++i) sequencer.setStep(i, seqPattern.front()[size_t(i)]);
+
     // ---- 2. Transport (tempo, position) -----------------------------------------
     transportPlaying = false;
     if (auto* ph = getPlayHead())
@@ -427,14 +538,36 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         const int len = juce::jmin(kControlBlock, n - start), end = start + len;
         updateModulation(start, len);
 
-        readSynthParams();
-        int pos = start;
-        for (; ev != midi.cend() && (*ev).samplePosition < end; ++ev)
+        // sequencer: events for this sub-block (offsets relative to `start`)
+        readSequencerParams();
+        int seqN = 0;
         {
-            const int at = juce::jlimit(pos, end, (*ev).samplePosition);
+            ambient::dsp::Sequencer::Transport st;
+            const bool on = seqRaw[0].load() > 0.5f, hostClock = seqRaw[1].load() < 0.5f;
+            st.hostSync = hostClock;
+            st.playing = on && (hostClock ? transportPlaying : true);
+            st.bpm = hostClock ? hostBpm : double(seqRaw[2].load());
+            st.ppqAtBlockStart = transportPpq + double(start) / getSampleRate() * hostBpm / 60.0;
+            sequencer.process(len, st);
+            seqN = sequencer.numEvents();
+            seqCurrentStep.store(sequencer.currentStep(), std::memory_order_relaxed);
+        }
+        readSynthParams();
+        int pos = start, si = 0;
+        auto seqAt = [&](int i) { return start + sequencer.event(i).sampleOffset; };
+        while ((ev != midi.cend() && (*ev).samplePosition < end) || si < seqN)
+        {
+            const bool takeMidi = ev != midi.cend() && (*ev).samplePosition < end && (si >= seqN || (*ev).samplePosition <= seqAt(si));
+            const int at = juce::jlimit(pos, end, takeMidi ? (*ev).samplePosition : seqAt(si));
             synth.render(s, sR, pos, at);
             pos = at;
-            handleMidi((*ev).getMessage());
+            if (takeMidi) { handleMidi((*ev).getMessage()); ++ev; }
+            else
+            {
+                const auto& e = sequencer.event(si++);
+                if (e.noteOn) { handleMidi(juce::MidiMessage::noteOn(1, e.note, e.velocity)); ++seqNotesOn; seqLastVelocity = e.velocity; seqNoteOnCount.fetch_add(1, std::memory_order_relaxed); }
+                else { handleMidi(juce::MidiMessage::noteOff(1, e.note)); seqNotesOn = juce::jmax(0, seqNotesOn - 1); }
+            }
         }
         synth.render(s, sR, pos, end);
         if (synthOn)
@@ -497,6 +630,8 @@ void AmbientProcessor::getStateInformation(juce::MemoryBlock& dest)
 {
     auto state = apvts.copyState();
     state.setProperty(kVersionProp, ids::kStateVersion, nullptr);
+    state.removeChild(state.getChildWithName("SEQPATTERN"), nullptr);
+    state.appendChild(patternToTree(), nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, dest);
 }
 
@@ -506,6 +641,7 @@ void AmbientProcessor::setStateInformation(const void* data, int size)
     if (! xml || ! xml->hasTagName(apvts.state.getType())) return;
     auto tree = juce::ValueTree::fromXml(*xml);
     migrateState(tree); // newer-version states still load known params
+    patternFromTree(tree.getChildWithName("SEQPATTERN"));
     apvts.replaceState(tree);
 }
 

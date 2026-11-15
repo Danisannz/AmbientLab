@@ -258,8 +258,16 @@ void AmbientEditor::buildPages()
 
     // ---- SEQUENCER ---------------------------------------------------------------
     auto& seq = pages[3];
-    seq.add("Step sequencer", Glyph::Sequencer, 0, 0)
-        .setPlaceholder("16/32 steps, gates, probability, ratchets, parameter locks and scale mode (16 scales, LFO-modulatable scale and root)", 7);
+    auto& sq = seq.add("Step sequencer", Glyph::Sequencer, 0, 0);
+    sequencerPanel = std::make_unique<SequencerPanel>(proc);
+    sq.addAndMakeVisible(*sequencerPanel);
+    sq.addAndMakeVisible(sequencerPanel->getPowerButton());
+    sq.setHeaderLedVisible(false);
+    seq.layoutContents = [this, &sq]
+    {
+        sequencerPanel->setBounds(sq.getContentBounds().reduced(2));
+        sequencerPanel->getPowerButton().setBounds(sq.getHeaderControlBounds());
+    };
 }
 
 void AmbientEditor::setMascotAnimated(bool on)

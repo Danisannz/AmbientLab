@@ -6,7 +6,7 @@
 
 namespace ambient::moddest
 {
-inline constexpr std::array<std::string_view, 85> kDestinations {
+inline constexpr std::array<std::string_view, 90> kDestinations {
     "global.masterGain",
     "global.inputGain",
     "sc.inputGain",
@@ -91,9 +91,14 @@ inline constexpr std::array<std::string_view, 85> kDestinations {
     "lfo.3.rate",
     "lfo.3.shape",
     "lfo.4.rate",
-    "lfo.4.shape"
+    "lfo.4.shape",
+    "seq.scale",
+    "seq.root",
+    "seq.transpose",
+    "seq.swing",
+    "seq.gate"
 };
-inline constexpr std::array<const char*, 85> kDestinationNames {
+inline constexpr std::array<const char*, 90> kDestinationNames {
     "Master Gain",
     "Input Gain",
     "SC Input Gain",
@@ -178,7 +183,12 @@ inline constexpr std::array<const char*, 85> kDestinationNames {
     "LFO 3 Rate",
     "LFO 3 Shape",
     "LFO 4 Rate",
-    "LFO 4 Shape"
+    "LFO 4 Shape",
+    "Seq Scale",
+    "Seq Root",
+    "Seq Transpose",
+    "Seq Swing",
+    "Seq Gate Length"
 };
 inline constexpr int kNumDestinations = int(kDestinations.size());   // + index 0 = "None"
 } // namespace ambient::moddest
@@ -191,6 +201,7 @@ enum Source : int
     Macro1, Macro2, Macro3, Macro4, Macro5, Macro6, Macro7, Macro8,
     Velocity, ModWheel, Aftertouch, PitchBend, NoteKey, NoteRandom,
     ScEnvelope, ScTransient, ScLow, ScMid, ScHigh, ScCentroid, ScGainReduction,
+    SeqGate, SeqVelocity, SeqStep,
     kCount
 };
 inline constexpr std::array<const char*, kCount> kNames {

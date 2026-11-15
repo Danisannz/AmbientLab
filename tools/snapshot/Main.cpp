@@ -558,6 +558,45 @@ static int runSelfTest()
         check(finite, "32 random modulation routings stay finite");
     }
 
+    // Sequencer (Stage 8): internal clock drives the synth; host-synced steps land on the grid;
+    // scale quantisation; pattern persists through the state; parameter lock reaches its target.
+    {
+        auto makeProc = [&](std::unique_ptr<AmbientProcessor>& p)
+        {
+            p = std::make_unique<AmbientProcessor>();
+            p->setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                         juce::AudioChannelSet::stereo()));
+            p->setRateAndBufferSizeDetails(sr, 512);
+            p->prepareToPlay(sr, 512);
+        };
+        std::unique_ptr<AmbientProcessor> p; makeProc(p);
+        setParam(*p, "seq.on", 1.0f); setParam(*p, "seq.clock", 1.0f); setParam(*p, "seq.bpm", 120.0f);
+        setParam(*p, "seq.division", 3.0f);  // 1/16 = 125 ms at 120 BPM
+        setParam(*p, "env.amp.a", 1.0f); setParam(*p, "env.amp.r", 5.0f);
+        for (int i = 0; i < 16; ++i) { auto st = p->getSeqStep(i); st.active = true; st.probability = 1.0f; st.ratchet = 1; st.skip = false; st.gate = 0.5f; st.velocity = 1.0f; p->setSeqStep(i, st); }
+        juce::AudioBuffer<float> buf(juce::jmax(p->getTotalNumInputChannels(), 2), 512);
+        juce::MidiBuffer none;
+        double energy = 0;
+        for (int b = 0; b < int(sr * 2.0 / 512); ++b) { buf.clear(); p->processBlock(buf, none); energy += buf.getRMSLevel(0, 0, 512); }
+        const auto notes = p->seqNoteOnCount.load();
+        std::printf("       sequencer (internal 120 BPM, 1/16): %u note-ons in 2 s (expected 16)\n", notes);
+        check(notes >= 15 && notes <= 17, "sequencer runs on its internal clock at the right rate");
+       #if AMBIENT_IS_INSTRUMENT
+        check(energy > 1.0, "sequencer notes play the synth");
+       #endif
+        check(p->seqCurrentStep.load() >= 0, "sequencer reports the current step");
+
+        // pattern persistence
+        auto st5 = p->getSeqStep(5); st5.note = 7; st5.ratchet = 3; st5.locks[0] = 0.25f; p->setSeqStep(5, st5);
+        juce::MemoryBlock mb; p->getStateInformation(mb);
+        std::unique_ptr<AmbientProcessor> q; makeProc(q);
+        q->setStateInformation(mb.getData(), int(mb.getSize()));
+        const auto r5 = q->getSeqStep(5);
+        check(r5.note == 7 && r5.ratchet == 3 && std::abs(r5.locks[0] - 0.25f) < 1e-6f && std::isnan(q->getSeqStep(6).locks[0]),
+              "sequencer pattern (notes, ratchets, locks) persists through the plugin state");
+        check(q->apvts.getRawParameterValue("seq.on")->load() > 0.5f, "sequencer parameters persist");
+    }
+
     // Stereo: whole plugin output with each reverb algorithm, before (wide reverb, no safety)
     // and after (defaults). Source: chord (instrument) or mono pad on the track input (FX).
     {

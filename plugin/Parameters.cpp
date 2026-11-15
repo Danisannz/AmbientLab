@@ -1,5 +1,7 @@
 #include <ambient/dsp/Delay.h>
 #include <ambient/dsp/Lfo.h>
+#include <ambient/dsp/Sequencer.h>
+#include <ambient/dsp/Scales.h>
 #include "ModDestinations.h"
 #include "Parameters.h"
 #include <ambient/ParamIDs.h>
@@ -281,6 +283,31 @@ Layout createParameterLayout()
         juce::StringArray srcNames; for (auto* n : ambient::modsrc::kNames) srcNames.add(n);
         juce::StringArray dstNames { "None" };
         for (auto* d : ambient::moddest::kDestinationNames) dstNames.add(d);
+        // ---- Sequencer (Stage 8): globals are parameters; the step pattern lives in the state tree ----
+        {
+            auto P8 = [&](const juce::String& i) { return PID { i, 8 }; };
+            juce::StringArray scales; for (int k = 0; k < ambient::dsp::scales::kNumScales; ++k) scales.add(ambient::dsp::scales::name(k));
+            const juce::StringArray roots { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+            layout.add(std::make_unique<juce::AudioParameterBool>(P8("seq.on"), "Seq On", false));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P8("seq.clock"), "Seq Clock", juce::StringArray { "Host", "Internal" }, 0));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P8("seq.bpm"), "Seq Internal Tempo", juce::NormalisableRange<float> { 40.0f, 240.0f, 0.1f }, 110.0f,
+                juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float x, int) { return juce::String(x, 1) + " BPM"; })));
+            layout.add(std::make_unique<juce::AudioParameterInt>(P8("seq.length"), "Seq Length", 1, 32, 16));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P8("seq.division"), "Seq Rate", divs, 3));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P8("seq.swing"), "Seq Swing", juce::NormalisableRange<float> { 0.0f, 0.75f }, 0.0f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P8("seq.direction"), "Seq Direction", juce::StringArray { "Forward", "Reverse", "Ping-Pong", "Random" }, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P8("seq.root"), "Seq Root", roots, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P8("seq.scale"), "Seq Scale", scales, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(P8("seq.octave"), "Seq Octave", juce::StringArray { "C1", "C2", "C3", "C4", "C5" }, 2));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P8("seq.transpose"), "Seq Transpose", juce::NormalisableRange<float> { -24.0f, 24.0f, 1.0f }, 0.0f,
+                juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float x, int) { return (x > 0 ? "+" : "") + juce::String(juce::roundToInt(x)) + " st"; })));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(P8("seq.gate"), "Seq Gate", juce::NormalisableRange<float> { 0.1f, 2.0f }, 1.0f, pctAttr));
+            layout.add(std::make_unique<juce::AudioParameterBool>(P8("seq.patternStart"), "Seq Scale Change At Pattern Start", false));
+            juce::StringArray lockDst { "None" }; for (auto* d : ambient::moddest::kDestinationNames) lockDst.add(d);
+            for (int l = 1; l <= 4; ++l)
+                layout.add(std::make_unique<juce::AudioParameterChoice>(P8("seq.lock" + juce::String(l)), "Seq Lock " + juce::String(l) + " Target", lockDst, 0));
+        }
+
         for (int m = 1; m <= ambient::dsp::ModMatrix::kSlots; ++m)
         {
             const juce::String pre = "mm." + juce::String(m) + ".", nm = "Mod " + juce::String(m) + " ";

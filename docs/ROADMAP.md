@@ -15,8 +15,8 @@ placeholders show the stage number; no control appears before its engine exists.
 | 6 | Delay: tape, BBD, digital, ping-pong, multi-tap, reverse, pitch, granular; host sync (15 divisions), feedback, low/high cut, drive, modulation, width, mix. Zero latency | Done (branch) - see DELAY.md |
 | ST | Stereo safety: reverb width + mono bass, output bass mono / width / correlation floor / mono check, monitor | Done (branch) - see STEREO.md |
 | 7 | 4 LFOs (14 waveforms incl. smooth/stepped random, S&H, slewed S&H, chaotic, 8-point custom curve; free or host-synced phase-locked; phase, shape, smooth, unipolar, retrigger) + 32-slot matrix: 26 sources (LFOs, 8 macros, velocity, mod wheel, aftertouch, pitch bend, key, note random, 7 sidechain sources) -> 85 destinations, control rate 32 samples | Done (branch) |
-| 8 | Step sequencer | Next (core engine done, integration in progress) |
-| 9 | Flexible routing (serial / parallel), presets | Planned |
+| 8 | Step sequencer: 1-32 steps, host sync or internal clock, 15 rates, swing, 4 directions, per-step gate/note/velocity/gate length/probability/ratchet 1-4/skip, 4 parameter-lock lanes (any of 90 destinations), 16 scales + root (both modulation destinations, latched at step / pattern start), octave, transpose, 8 preset patterns, randomise; drives the synth (Instrument), locks + Seq Gate/Velocity/Step mod sources work in both | Done (branch) |
+| 9 | Flexible routing (serial / parallel), presets | Next |
 | 10 | Presets, optimization, validation | Planned |
 
 ## Stage 6 - modulation: sources already prepared
