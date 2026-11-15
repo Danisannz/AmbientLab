@@ -61,6 +61,24 @@ void SidechainGraph::tick(float dt, bool analyse)
     rangeHi = proc.apvts.getRawParameterValue(id(scid::rangeHigh))->load();
     noSignalTime = refPresent ? 0.0f : noSignalTime + dt;
 
+    // Developer diagnostics: proves real samples reach the detector (independent of host display).
+    {
+        const auto& d = proc.scDiag;
+        diagBusOn = d.busEnabled.load(std::memory_order_relaxed);
+        const uint32_t nz = d.nonZeroBlocks.load(std::memory_order_relaxed), bl = d.blocks.load(std::memory_order_relaxed);
+        const bool arriving = nz != lastNz;
+        sigHold = arriving ? 1.0f : std::max(0.0f, sigHold - dt);
+        const bool processing = bl != lastBlocks;
+        lastNz = nz; lastBlocks = bl;
+        auto db = [](float x) { return x > 1.0e-6f ? juce::String(juce::Decibels::gainToDecibels(x), 1) + " dB" : juce::String("-inf"); };
+        diagLine = juce::String("SC BUS ") + (diagBusOn ? "ON" : "OFF")
+                 + "  |  " + juce::String(d.channels.load(std::memory_order_relaxed)) + " ch (buffer " + juce::String(d.bufferChannels.load(std::memory_order_relaxed)) + ")"
+                 + "  |  RMS " + db(d.rms.load(std::memory_order_relaxed)) + "  PEAK " + db(d.peak.load(std::memory_order_relaxed))
+                 + "  |  SAMPLES " + (sigHold > 0.0f ? "YES" : "NO")
+                 + "  |  GR " + juce::String(maxRed, 1) + " dB"
+                 + (processing ? "" : "  |  AUDIO STOPPED");
+    }
+
     if (analyse)
     {
         const double sr = proc.currentSampleRate.load();
@@ -328,10 +346,16 @@ void SidechainGraph::paint(juce::Graphics& g)
     tag("AMBIENTLAB OUT", lime);
     tag(fullBand ? "FULL-BAND REDUCTION" : "REDUCTION", uvBright);
 
+    // developer diagnostics line (top-left of the graph)
+    g.setFont(caption(9.5f));
+    g.setColour(diagBusOn && sigHold > 0.0f ? lime.withAlpha(0.85f) : textFaint);
+    g.drawText(diagLine, pr.toNearestInt().reduced(8, 4).removeFromBottom(46).removeFromTop(14), juce::Justification::centredLeft);
+
     // no-signal guidance
     if (noSignalTime > 0.5f)
     {
-        const auto msg = juce::String("No sidechain signal - route a Kick/Bass channel to the AmbientLab sidechain input");
+        const auto msg = diagBusOn ? juce::String("Sidechain input active but silent - send a Kick/Bass channel to the AmbientLab sidechain")
+                                   : juce::String("Sidechain input is disabled by the host - enable/route the AmbientLab sidechain input");
         const auto f = body(12.0f);
         auto box = juce::Rectangle<float>(juce::jmin(pr.getWidth() - 20.0f, textWidth(f, msg) + 24.0f), 26.0f)
                        .withCentre({ pr.getCentreX(), pr.getCentreY() + 10.0f });

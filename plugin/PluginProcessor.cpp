@@ -11,16 +11,19 @@ juce::AudioProcessor::BusesProperties AmbientProcessor::makeBuses()
     // Input bus 0 = main input (FX: the track being processed; Instrument: unused,
     // disabled by default). Input bus 1 = aux sidechain (Kick/Bass reference), so
     // VST3 hosts present it as a real sidechain. Reference is never mixed into the output.
+    // The sidechain bus is ACTIVE by default: VST3 hosts that route audio without
+    // calling activateBus() would otherwise deliver 0 channels (the original bug).
+    // An unrouted sidechain simply receives silence.
 #if AMBIENT_IS_INSTRUMENT
     return juce::AudioProcessor::BusesProperties()
         .withInput ("Input", juce::AudioChannelSet::stereo(), false)
         .withOutput("Output", juce::AudioChannelSet::stereo(), true)
-        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false);
+        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), true);
 #else
     return juce::AudioProcessor::BusesProperties()
         .withInput ("Input",  juce::AudioChannelSet::stereo(), true)
         .withOutput("Output", juce::AudioChannelSet::stereo(), true)
-        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false);
+        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), true);
 #endif
 }
 
@@ -135,7 +138,7 @@ bool AmbientProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
        #if AMBIENT_IS_INSTRUMENT
         if (! main.isDisabled() && main != juce::AudioChannelSet::stereo()) return false;
        #else
-        if (main != juce::AudioChannelSet::stereo()) return false;
+        if (main != juce::AudioChannelSet::stereo() && main != juce::AudioChannelSet::mono()) return false;
        #endif
     }
     if (layouts.inputBuses.size() > 1)
@@ -224,19 +227,37 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     float* intR = scratch.getWritePointer(3);
 
     // Sidechain reference (aux bus 1): mono or stereo, with its own input gain.
+    // Never assumes stereo or enabled; checks the channels really exist in this buffer.
     bool hasRef = false;
-    if (getBusCount(true) > 1 && getBus(true, 1)->isEnabled())
+    const bool scEnabled = getBusCount(true) > 1 && getBus(true, 1)->isEnabled();
+    int scChannels = 0;
+    float scPk = 0.0f; double scSq = 0.0;
+    if (scEnabled)
     {
-        auto sc = getBusBuffer(buffer, true, 1);
-        if (sc.getNumChannels() >= 1)
+        const int offset = getChannelIndexInProcessBlockBuffer(true, 1, 0);
+        scChannels = juce::jlimit(0, juce::jmax(0, buffer.getNumChannels() - offset), getBus(true, 1)->getNumberOfChannels());
+        if (scChannels >= 1)
         {
+            auto sc = getBusBuffer(buffer, true, 1);
             scGain.setTarget(juce::Decibels::decibelsToGain(scParams.inputGain->load()));
             const float* a = sc.getReadPointer(0);
-            const float* b = sc.getReadPointer(juce::jmin(1, sc.getNumChannels() - 1));
-            for (int i = 0; i < n; ++i) { const float g = scGain.next(); refL[i] = a[i] * g; refR[i] = b[i] * g; }
+            const float* b = sc.getReadPointer(juce::jmin(1, scChannels - 1));
+            for (int i = 0; i < n; ++i)
+            {
+                scPk = std::max(scPk, std::max(std::abs(a[i]), std::abs(b[i])));
+                scSq += 0.5 * (double(a[i]) * a[i] + double(b[i]) * b[i]);
+                const float g = scGain.next(); refL[i] = a[i] * g; refR[i] = b[i] * g;
+            }
             hasRef = true;
         }
     }
+    scDiag.busEnabled.store(scEnabled, std::memory_order_relaxed);
+    scDiag.channels.store(scChannels, std::memory_order_relaxed);
+    scDiag.bufferChannels.store(buffer.getNumChannels(), std::memory_order_relaxed);
+    scDiag.peak.store(std::max(scPk, scDiag.peak.load(std::memory_order_relaxed) * 0.95f), std::memory_order_relaxed);
+    scDiag.rms.store(float(std::sqrt(scSq / double(juce::jmax(1, n)))), std::memory_order_relaxed);
+    scDiag.blocks.fetch_add(1, std::memory_order_relaxed);
+    if (scPk > 0.0f) scDiag.nonZeroBlocks.fetch_add(1, std::memory_order_relaxed);
 
     // FX: the track input is the internal signal (bus 0). Instrument: no main input.
     bool hasMain = false;
@@ -244,11 +265,11 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     if (getBusCount(true) > 0 && getBus(true, 0)->isEnabled())
     {
         auto in = getBusBuffer(buffer, true, 0);
-        if (in.getNumChannels() >= 2)
+        if (in.getNumChannels() >= 1)
         {
             inputGain.setTarget(juce::Decibels::decibelsToGain(pInputGain->load(), -60.0f));
             const float* a = in.getReadPointer(0);
-            const float* b = in.getReadPointer(1);
+            const float* b = in.getReadPointer(juce::jmin(1, in.getNumChannels() - 1)); // mono track -> both sides
             for (int i = 0; i < n; ++i) { const float g = inputGain.next(); intL[i] = a[i] * g; intR[i] = b[i] * g; }
             hasMain = true;
         }

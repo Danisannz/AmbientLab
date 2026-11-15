@@ -52,6 +52,16 @@ public:
 
     /** Set by the editor; the audio thread only feeds the capture ring while true. */
     std::atomic<bool> editorOpen { false };
+
+    /** Sidechain input diagnostics (audio thread -> UI, lock-free). Raw samples, before SC gain. */
+    struct SidechainDiagnostics
+    {
+        std::atomic<bool> busEnabled { false };
+        std::atomic<int> channels { 0 };          // channels actually read from the aux bus
+        std::atomic<int> bufferChannels { 0 };    // channels in the host buffer
+        std::atomic<float> rms { 0.0f }, peak { 0.0f };
+        std::atomic<uint32_t> blocks { 0 }, nonZeroBlocks { 0 };
+    } scDiag;
     ambient::StereoCaptureRing captureRing { 1 << 18 }; // ~1.4 s at 192 kHz (scope up to 500 ms)
     ambient::StereoCaptureRing refRing { 1 << 16 };     // sidechain reference, for the sidechain graph
 

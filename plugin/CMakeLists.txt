@@ -55,7 +55,8 @@ function(ambient_add_plugin TARGET PRODUCT CODE IS_SYNTH)
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
-        JUCE_DISPLAY_SPLASH_SCREEN=0)
+        JUCE_DISPLAY_SPLASH_SCREEN=0
+        JUCE_ALSA=0 JUCE_JACK=0) # plugins never open audio devices
     target_link_libraries(${TARGET}
         PRIVATE ambient_core
                 AmbientLabAssets

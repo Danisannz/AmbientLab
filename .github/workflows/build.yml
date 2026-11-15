@@ -37,6 +37,18 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }
 
+      - name: VST3 host test (built plugins, sidechain end-to-end)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Recurse -Filter "AmbientVst3HostTest.exe" | Where-Object { $_.FullName -match 'Release' } | Select-Object -First 1
+          $cases = @(@("build/plugin/AmbientLabFX_artefacts/Release/VST3/AmbientLab FX.vst3", "fx"),
+                     @("build/plugin/AmbientLabInstrument_artefacts/Release/VST3/AmbientLab.vst3", "instrument"))
+          foreach ($c in $cases) {
+            Write-Host "== $($c[1]) =="
+            & $exe.FullName $c[0] $c[1]
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+
       - name: Download pluginval
         shell: pwsh
         run: |

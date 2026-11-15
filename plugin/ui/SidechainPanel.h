@@ -49,6 +49,7 @@ private:
     std::array<bool, 4> bandOn {};
     bool refPresent = false, fullBand = false, automatic = true;
     float maxRed = 0.0f, rangeLo = 30.0f, rangeHi = 250.0f, noSignalTime = 0.0f;
+    juce::String diagLine; bool diagBusOn = false; uint32_t lastNz = 0, lastBlocks = 0; float sigHold = 0.0f;
     int selected = 0, dragging = -1;
     juce::Rectangle<int> plot;
     GraphicsQuality quality = GraphicsQuality::High;

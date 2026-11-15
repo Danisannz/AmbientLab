@@ -24,6 +24,7 @@ if(AMBIENT_BUILD_PLUGINS)
     add_subdirectory(plugin)
     if(AMBIENT_BUILD_SNAPSHOT)
         add_subdirectory(tools/snapshot)
+        add_subdirectory(tools/vst3host)
     endif()
 endif()
 
