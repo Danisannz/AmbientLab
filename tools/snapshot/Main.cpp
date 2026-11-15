@@ -815,7 +815,7 @@ static int runSelfTest()
         {
             auto p = fresh();
             setParam(*p, "seq.scale", 4.0f); setParam(*p, "seq.root", 2.0f);   // D dorian
-            setParam(*p, "seq.rnd.density", 1.0f);
+            setParam(*p, "seq.rnd.lockSteps", 1.0f);   // keep all 16 steps active: the note count must not change
             uint32_t before = 0, after = 0;
             play(*p, 2.0);
             before = p->seqNoteOnCount.load();
@@ -825,7 +825,7 @@ static int runSelfTest()
             bool inScale = true;
             for (int i = 0; i < 16; ++i) inScale = inScale && ambient::dsp::scales::contains(48 + 2 + p->getSeqStep(i).note, 4, 2);
             std::printf("       generate while playing: %u notes in 2 s before, %u after (pattern swapped live)\n", before, after);
-            check(after >= before - 1 && after <= before + 1 && inScale, "Generate swaps in a new in-scale pattern without stopping playback");
+            check(after == before && inScale, "Generate swaps in a new in-scale pattern without stopping playback (same note count)");
 
             juce::MemoryBlock mb; setParam(*p, "seq.lfo.depth", 0.6f); setParam(*p, "seq.rnd.on", 1.0f); p->getStateInformation(mb);
             auto q = fresh(); q->setStateInformation(mb.getData(), int(mb.getSize()));
