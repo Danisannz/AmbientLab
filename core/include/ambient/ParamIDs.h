@@ -94,5 +94,12 @@ inline constexpr std::string_view on = "gr.on", size = "gr.size", density = "gr.
     window = "gr.window", spread = "gr.spread", feedback = "gr.feedback", mix = "gr.mix", freeze = "gr.freeze";
 }
 
+namespace rv
+{
+inline constexpr std::string_view on = "rv.on", algo = "rv.algo", decay = "rv.decay", predelay = "rv.predelay",
+    size = "rv.size", diffusion = "rv.diffusion", damping = "rv.damping", early = "rv.early", mod = "rv.mod",
+    feedback = "rv.feedback", shimmer = "rv.shimmer", mix = "rv.mix", freeze = "rv.freeze";
+}
+
 inline constexpr int kMaxVoices = 8;
 } // namespace ambient::ids

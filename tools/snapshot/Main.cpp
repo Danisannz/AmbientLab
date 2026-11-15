@@ -377,6 +377,59 @@ static int runSelfTest()
     }
    #endif
 
+    // Reverb (Stage 5): a short burst rings on with the reverb on, stops dead with it off; per-algorithm CPU.
+    {
+        auto tailEnergy = [&](bool reverbOn, int algo, double rate, int bs, double* cpuPct)
+        {
+            AmbientProcessor p;
+            p.setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                        juce::AudioChannelSet::stereo()));
+            p.setRateAndBufferSizeDetails(rate, bs);
+            p.prepareToPlay(rate, bs);
+            setParam(p, "env.amp.r", 1.0f);
+            setParam(p, "rv.on", reverbOn ? 1.0f : 0.0f);
+            setParam(p, "rv.algo", float(algo));
+            setParam(p, "rv.decay", 2.0f); setParam(p, "rv.mix", 1.0f); setParam(p, "rv.predelay", 0.0f);
+            const int totalCh = juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels(), 2);
+            juce::AudioBuffer<float> buf(totalCh, bs);
+            juce::MidiBuffer on, off, none;
+            on.addEvent(juce::MidiMessage::noteOn(1, 57, 0.9f), 0);
+            off.addEvent(juce::MidiMessage::noteOff(1, 57), 0);
+            const int burstBlocks = juce::jmax(1, int(rate * 0.1 / bs));
+            const int blocks = int(rate * 1.5 / bs);
+            double tail = 0.0, t0 = 0.0, ph = 0.0;
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+               #if ! AMBIENT_IS_INSTRUMENT
+                if (b < burstBlocks)
+                    for (int i = 0; i < bs; ++i, ph += 2.0 * kPi * 220.0 / rate)
+                        for (int c = 0; c < 2; ++c) buf.setSample(c, i, 0.5f * float(std::sin(ph)));
+               #endif
+                if (b == blocks / 4) t0 = juce::Time::getMillisecondCounterHiRes();
+                p.processBlock(buf, b == 0 ? on : (b == burstBlocks ? off : none));
+                if (b * bs > int(rate * 0.6))
+                    for (int c = 0; c < 2; ++c) tail += double(buf.getRMSLevel(c, 0, bs));
+            }
+            if (cpuPct) *cpuPct = 100.0 * (juce::Time::getMillisecondCounterHiRes() - t0) / ((blocks - blocks / 4) * bs * 1000.0 / rate);
+            return tail;
+        };
+        check(tailEnergy(false, 0, sr, block, nullptr) < 1e-6, "reverb off: no tail after the source stops");
+        bool allRing = true;
+        for (int a = 0; a < 7; ++a) allRing = allRing && tailEnergy(true, a, sr, block, nullptr) > 1e-3;
+        check(allRing, "reverb on: every algorithm rings after the source stops");
+        std::printf("       reverb cost (processBlock total, block 512):\n");
+        const char* names[] = { "Hall", "Room", "Cathedral", "Plate", "Spring", "Shimmer", "Infinite" };
+        for (double rate : { 48000.0, 192000.0 })
+            for (int a = 0; a < 7; ++a)
+            {
+                double cpu = 0.0, base = 0.0;
+                tailEnergy(false, a, rate, 512, &base);
+                tailEnergy(true, a, rate, 512, &cpu);
+                std::printf("         %6.1f kHz %-10s: %5.2f %% (reverb adds %5.2f %%)\n", rate / 1000.0, names[a], cpu, cpu - base);
+            }
+    }
+
     // State: v1 session (no sc.* params) loads, migrates to v2, keeps known values.
     {
         AmbientProcessor p;
@@ -528,6 +581,7 @@ int main(int argc, char** argv)
         { "small_expanded_scope", 0, 0, true, 960, 600 },
         { "small_stereo", 2, 1, false, 960, 600 },
         { "process_granular", 1, 2, false, 1280, 800, 1, { { "processModule", 1 } } },
+        { "process_reverb", 1, 2, false, 1280, 800, 1, { { "processModule", 2 } } },
         { "stereo_lr_docked", 1, 1, false, 1280, 800, 1, { { "vs_display", 1 } } },
         { "scope_mono_falling", 0, 0, false, 1280, 800, 1, { { "sc_view", 4 }, { "sc_time", 8.0 }, { "sc_trig", 2 }, { "sc_level", 0.2 }, { "sc_gain", 2.0 } } },
     };

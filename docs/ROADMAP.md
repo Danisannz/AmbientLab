@@ -11,8 +11,8 @@ placeholders show the stage number; no control appears before its engine exists.
 | 2 | Oscillator engine: A/B (5 band-limited waves, unison 7, detune, spread, phase/free), FM/PM B->A, sub, white/pink noise, analog drift, ADAA saturation | Done (branch). Worst case (8 voices, A+B unison 7, FM, noise, drive): ~10 % of one core at 48 kHz |
 | 3 | Multimode filter (LP24/LP12/BP/HP12/HP24/Notch, resonance, drive, env/key/velocity) + amp and mod ADSR (mod -> cutoff, pitch) | Done (branch) |
 | 4 | Granular engine: 10 s buffer, freeze, 64-grain pool, size/density/position/scatter, pitch +-24 st + random, reverse probability, 5 windows, stereo spread, stable feedback, mix; processes synth (instrument) or track input (FX) | Done (branch) |
-| 5 | Reverb algorithms | Next |
-| 5 | Delay algorithms | Planned |
+| 5 | Reverb: 7 independent algorithms (Hall/Room/Cathedral 8-line FDN with per-line RT60 gains, Dattorro plate, dispersive spring, octave-up shimmer, limited infinite), decay, pre-delay, size, diffusion, damping, early reflections, modulation, regenerative feedback, freeze, mix. Zero latency | Done (branch). 0.5-1.6 % of one core at 48 kHz - see REVERB.md |
+| 6 | Delay algorithms | Next |
 | 6 | Four LFOs + 32-slot modulation matrix | Planned |
 | 7 | Step sequencer | Planned |
 | 8 | Flexible routing + stereo engine | Planned |

@@ -190,7 +190,10 @@ void AmbientEditor::buildPages()
     gran.addAndMakeVisible(granularPanel->getPowerButton());
     gran.setHeaderLedVisible(false);
     auto& rev = process.add("Reverb", Glyph::Reverb, 0, 0);
-    rev.setPlaceholder("Shimmer, hall, plate, spring, room, cathedral and infinite reverbs", 5);
+    reverbPanel = std::make_unique<ReverbPanel>(proc.apvts);
+    rev.addAndMakeVisible(*reverbPanel);
+    rev.addAndMakeVisible(reverbPanel->getPowerButton());
+    rev.setHeaderLedVisible(false);
     auto& dly = process.add("Delay", Glyph::Delay, 0, 0);
     dly.setPlaceholder("Tape, BBD, digital, ping-pong, multi-tap, reverse, pitch and granular delays", 6);
     auto& rout = process.add("Routing", Glyph::Stereo, 0, 0);
@@ -204,7 +207,7 @@ void AmbientEditor::buildPages()
     };
     processSel.setSelected(juce::jlimit(0, 4, int(settings.get("processModule", 0))), false);
     processSel.onChange(processSel.getSelected());
-    process.layoutContents = [this, &process, &sc, &gran]
+    process.layoutContents = [this, &process, &sc, &gran, &rev]
     {
         auto r = process.getLocalBounds();
         processSel.setBounds(r.removeFromTop(30).withWidth(juce::jmin(r.getWidth(), 560)));
@@ -214,6 +217,8 @@ void AmbientEditor::buildPages()
         sidechain->getEnableButton().setBounds(sc.getHeaderControlBounds());
         granularPanel->setBounds(gran.getContentBounds().withTrimmedTop(4));
         granularPanel->getPowerButton().setBounds(gran.getHeaderControlBounds());
+        reverbPanel->setBounds(rev.getContentBounds().withTrimmedTop(4));
+        reverbPanel->getPowerButton().setBounds(rev.getHeaderControlBounds());
     };
 
     // ---- MODULATION ------------------------------------------------------------

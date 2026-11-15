@@ -7,6 +7,7 @@
 #include <ambient/dsp/SpectralDucker.h>
 #include <ambient/dsp/SynthEngine.h>
 #include <ambient/dsp/Granular.h>
+#include <ambient/dsp/Reverb.h>
 #include <ambient/ParamIDs.h>
 #include <array>
 
@@ -86,6 +87,9 @@ private:
     ambient::dsp::Granular granular;
     void readGranularParams();
     std::vector<std::atomic<float>*> grRaw;
+    ambient::dsp::Reverb reverb;
+    void readReverbParams();
+    std::vector<std::atomic<float>*> rvRaw;
     void readSynthParams();
     std::vector<std::atomic<float>*> oscRaw; // cached raw parameter pointers (filled in the constructor)
     juce::AudioBuffer<float> synthBuffer; // preallocated in prepareToPlay

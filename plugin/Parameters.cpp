@@ -201,6 +201,26 @@ Layout createParameterLayout()
         layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::feedback), "Grain Feedback", juce::NormalisableRange<float> { 0.0f, 0.95f }, 0.0f, pctAttr));
         layout.add(std::make_unique<juce::AudioParameterFloat>(P3(g::mix), "Grain Mix", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.5f, pctAttr));
         layout.add(std::make_unique<juce::AudioParameterBool>(P3(g::freeze), "Grain Freeze", false));
+
+        // ---- Reverb (Stage 5) ----
+        namespace r = ids::rv;
+        auto P4 = [&](std::string_view i) { return PID { id(i), 4 }; };
+        auto secAttr = juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float x, int) { return juce::String(x, x < 10.0f ? 2 : 1) + " s"; });
+        layout.add(std::make_unique<juce::AudioParameterBool>(P4(r::on), "Reverb On", false));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(P4(r::algo), "Reverb Type",
+            juce::StringArray { "Hall", "Room", "Cathedral", "Plate", "Spring", "Shimmer", "Infinite" }, 0));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::decay), "Reverb Decay", logRange(0.2f, 30.0f), 3.0f, secAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::predelay), "Reverb Pre-Delay", juce::NormalisableRange<float> { 0.0f, 500.0f, 0.1f, 0.5f }, 20.0f, msAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::size), "Reverb Size", juce::NormalisableRange<float> { 0.5f, 2.0f }, 1.0f,
+            juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float x, int) { return juce::String(x, 2) + "x"; })));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::diffusion), "Reverb Diffusion", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.7f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::damping), "Reverb Damping", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.4f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::early), "Reverb Early Reflections", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.5f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::mod), "Reverb Modulation", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.3f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::feedback), "Reverb Feedback", juce::NormalisableRange<float> { 0.0f, 0.9f }, 0.0f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::shimmer), "Reverb Shimmer", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.5f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(P4(r::mix), "Reverb Mix", juce::NormalisableRange<float> { 0.0f, 1.0f }, 0.3f, pctAttr));
+        layout.add(std::make_unique<juce::AudioParameterBool>(P4(r::freeze), "Reverb Freeze", false));
     }
 
     return layout;

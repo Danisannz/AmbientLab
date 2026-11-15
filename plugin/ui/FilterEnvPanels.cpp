@@ -153,4 +153,85 @@ void GranularPanel::paint(juce::Graphics& gr)
     label(pitch, "PITCH / DIRECTION");
     label(out, "STEREO / OUTPUT");
 }
+
+namespace rv = ambient::ids::rv;
+
+ReverbPanel::ReverbPanel(juce::AudioProcessorValueTreeState& s) : state(s)
+{
+    power.setLitWhenOn(true);
+    power.setTooltip("Reverb on/off");
+    powerAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(s, id(rv::on), power);
+    addAndMakeVisible(freeze);
+    freeze.setTooltip("Freeze: input muted, tail held indefinitely (lossless loop)");
+    freezeAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(s, id(rv::freeze), freeze);
+    if (auto* p = s.getParameter(id(rv::algo)))
+    {
+        algo = std::make_unique<ParamSegment>(*p, juce::StringArray { "HALL", "ROOM", "CATHED", "PLATE", "SPRING", "SHIMMER", "INFINITE" });
+        addAndMakeVisible(*algo);
+    }
+    time.push_back(knob(*this, s, rv::decay, "Decay"));
+    time.push_back(knob(*this, s, rv::predelay, "Pre-delay"));
+    time.push_back(knob(*this, s, rv::size, "Size"));
+    character.push_back(knob(*this, s, rv::diffusion, "Diffusion"));
+    character.push_back(knob(*this, s, rv::damping, "Damping"));
+    character.push_back(knob(*this, s, rv::early, "Early"));
+    character.push_back(knob(*this, s, rv::mod, "Mod"));
+    out.push_back(knob(*this, s, rv::feedback, "Feedback"));
+    out.push_back(knob(*this, s, rv::shimmer, "Shimmer"));
+    shimmerKnob = out.back().get();
+    shimmerKnob->getSlider().setTooltip("Octave-up regeneration (Shimmer algorithm only)");
+    out.push_back(knob(*this, s, rv::mix, "Mix"));
+    timerCallback();
+    startTimerHz(10);
+}
+
+void ReverbPanel::timerCallback()
+{
+    const auto* a = state.getRawParameterValue(id(rv::algo));
+    const bool shimmerAlgo = a != nullptr && juce::roundToInt(a->load()) == 5;
+    if (shimmerKnob && shimmerKnob->isEnabled() != shimmerAlgo)
+    {
+        shimmerKnob->setEnabled(shimmerAlgo);
+        shimmerKnob->setAlpha(shimmerAlgo ? 1.0f : 0.35f);
+    }
+}
+
+void ReverbPanel::resized()
+{
+    auto r = getLocalBounds();
+    auto top = r.removeFromTop(30).withSizeKeepingCentre(r.getWidth(), 26);
+    freeze.setBounds(top.removeFromLeft(96));
+    top.removeFromLeft(12);
+    if (algo) algo->setBounds(top.removeFromLeft(juce::jmin(520, top.getWidth())));
+    r.removeFromTop(10);
+
+    const int total = int(time.size() + character.size() + out.size());
+    const int gapW = 18;
+    const int kw = juce::jmin(84, (r.getWidth() - 2 * gapW) / total);
+    const int d = juce::jlimit(36, 60, kw - 20);
+    auto row = r.withHeight(juce::jmin(r.getHeight(), RotaryKnob::heightFor(d, true) + 18)).withTrimmedTop(26);
+    for (auto* group : { &time, &character, &out })
+    {
+        for (auto& k : *group) k->setBounds(row.removeFromLeft(kw));
+        row.removeFromLeft(gapW);
+    }
+}
+
+void ReverbPanel::paint(juce::Graphics& gr)
+{
+    gr.setFont(caption(10.5f));
+    gr.setColour(textFaint);
+    auto label = [&](const std::vector<std::unique_ptr<RotaryKnob>>& ks, const char* t)
+    {
+        if (ks.empty()) return;
+        const auto a = ks.front()->getBounds(), b = ks.back()->getBounds();
+        gr.drawText(t, juce::Rectangle<int>(a.getX(), a.getY() - 18, b.getRight() - a.getX(), 14), juce::Justification::centredLeft);
+        gr.setColour(edge);
+        gr.drawHorizontalLine(a.getY() - 3, float(a.getX()), float(b.getRight()));
+        gr.setColour(textFaint);
+    };
+    label(time, "TIME / SPACE");
+    label(character, "CHARACTER");
+    label(out, "FEEDBACK / OUTPUT");
+}
 } // namespace ambient::ui

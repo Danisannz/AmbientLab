@@ -45,4 +45,24 @@ private:
     std::unique_ptr<ParamSegment> window;
     std::vector<std::unique_ptr<RotaryKnob>> grain, pitch, out;
 };
+
+/** Reverb module (Stage 5). Shimmer amount is only active on the Shimmer algorithm. */
+class ReverbPanel : public juce::Component, private juce::Timer
+{
+public:
+    explicit ReverbPanel(juce::AudioProcessorValueTreeState&);
+    ~ReverbPanel() override { stopTimer(); }
+    void resized() override;
+    void paint(juce::Graphics&) override;
+    juce::Button& getPowerButton() noexcept { return power; }
+private:
+    void timerCallback() override;
+    juce::AudioProcessorValueTreeState& state;
+    BypassButton power { "Reverb" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerAtt, freezeAtt;
+    PillToggle freeze { "Freeze", theme::uvBright };
+    std::unique_ptr<ParamSegment> algo;
+    std::vector<std::unique_ptr<RotaryKnob>> time, character, out;
+    RotaryKnob* shimmerKnob = nullptr;
+};
 } // namespace ambient::ui
