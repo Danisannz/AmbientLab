@@ -8,14 +8,19 @@ using namespace ambient;
 
 juce::AudioProcessor::BusesProperties AmbientProcessor::makeBuses()
 {
+    // Input bus 0 = main input (FX: the track being processed; Instrument: unused,
+    // disabled by default). Input bus 1 = aux sidechain (Kick/Bass reference), so
+    // VST3 hosts present it as a real sidechain. Reference is never mixed into the output.
 #if AMBIENT_IS_INSTRUMENT
     return juce::AudioProcessor::BusesProperties()
+        .withInput ("Input", juce::AudioChannelSet::stereo(), false)
         .withOutput("Output", juce::AudioChannelSet::stereo(), true)
         .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false);
 #else
     return juce::AudioProcessor::BusesProperties()
         .withInput ("Input",  juce::AudioChannelSet::stereo(), true)
-        .withOutput("Output", juce::AudioChannelSet::stereo(), true);
+        .withOutput("Output", juce::AudioChannelSet::stereo(), true)
+        .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false);
 #endif
 }
 
@@ -27,13 +32,36 @@ AmbientProcessor::AmbientProcessor()
     pInputGain   = apvts.getRawParameterValue(id(ids::inputGain));
     pSourceMix   = apvts.getRawParameterValue(id(ids::sourceMix));
     pBypassSynth = apvts.getRawParameterValue(id(ids::bypassSynth));
+
+    auto raw = [this](std::string_view i) { return apvts.getRawParameterValue(id(i)); };
+    scParams.enable = raw(ids::sc::enable);       scParams.inputGain = raw(ids::sc::inputGain);
+    scParams.sensitivity = raw(ids::sc::sensitivity); scParams.threshold = raw(ids::sc::threshold);
+    scParams.depth = raw(ids::sc::depth);         scParams.mix = raw(ids::sc::mix);
+    scParams.automatic = raw(ids::sc::automatic); scParams.fullBand = raw(ids::sc::fullBand);
+    scParams.rangeLow = raw(ids::sc::rangeLow);   scParams.rangeHigh = raw(ids::sc::rangeHigh);
+    scParams.listen = raw(ids::sc::listen);       scParams.delta = raw(ids::sc::delta);
+    for (int b = 0; b < ids::sc::kBands; ++b)
+        for (int f = 0; f < 7; ++f)
+            scParams.band[size_t(b)][size_t(f)] = apvts.getRawParameterValue(juce::String(ids::sc::bandId(b, ids::sc::BandField(f))));
 }
 
 bool AmbientProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo()) return false;
-    for (const auto& in : layouts.inputBuses)
-        if (! in.isDisabled() && in != juce::AudioChannelSet::stereo()) return false;
+    if (layouts.inputBuses.size() > 0)
+    {
+        const auto& main = layouts.inputBuses[0];
+       #if AMBIENT_IS_INSTRUMENT
+        if (! main.isDisabled() && main != juce::AudioChannelSet::stereo()) return false;
+       #else
+        if (main != juce::AudioChannelSet::stereo()) return false;
+       #endif
+    }
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto& sc = layouts.inputBuses[1]; // sidechain: off, mono or stereo
+        if (! sc.isDisabled() && sc != juce::AudioChannelSet::mono() && sc != juce::AudioChannelSet::stereo()) return false;
+    }
     return true;
 }
 
@@ -48,6 +76,42 @@ void AmbientProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     inputGain.reset (juce::Decibels::decibelsToGain(pInputGain->load(),  -60.0f));
     sourceMix.reset (pSourceMix->load());
     for (auto& d : dc) d.prepare(sampleRate);
+
+    scGain.prepare(sampleRate, 20.0f);
+    scGain.reset(juce::Decibels::decibelsToGain(scParams.inputGain->load()));
+    scratch.setSize(4, samplesPerBlock, false, true, false); // refL, refR, intL, intR
+    ducker.prepare(sampleRate, samplesPerBlock);
+    setLatencySamples(ambient::dsp::SpectralDucker::getLatencySamples()); // 0: IIR-only audio path
+}
+
+void AmbientProcessor::readSidechainParams()
+{
+    using P = ambient::dsp::SpectralDucker::Params;
+    P p;
+    p.enabled = scParams.enable->load() > 0.5f;
+    p.sensitivity = scParams.sensitivity->load();
+    p.thresholdOffset = scParams.threshold->load();
+    p.depth = scParams.depth->load();
+    p.mix = scParams.mix->load();
+    p.automatic = scParams.automatic->load() > 0.5f;
+    p.fullBand = scParams.fullBand->load() > 0.5f;
+    p.rangeLow = scParams.rangeLow->load();
+    p.rangeHigh = juce::jmax(p.rangeLow * 1.5f, scParams.rangeHigh->load());
+    p.listen = scParams.listen->load() > 0.5f;
+    p.delta = scParams.delta->load() > 0.5f;
+    for (int b = 0; b < ids::sc::kBands; ++b)
+    {
+        auto& bp = p.bands[size_t(b)];
+        const auto& src = scParams.band[size_t(b)];
+        bp.enabled = src[0]->load() > 0.5f;
+        bp.freq = src[1]->load();
+        bp.q = src[2]->load();
+        bp.threshold = src[3]->load();
+        bp.maxReduction = src[4]->load();
+        bp.attackMs = src[5]->load();
+        bp.releaseMs = src[6]->load();
+    }
+    ducker.setParams(p);
 }
 
 void AmbientProcessor::handleMidi(const juce::MidiMessage& m)
@@ -69,16 +133,46 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         return;
     }
 
-    // ---- External input (FX main bus, or Instrument sidechain) ------------
-    auto inBus = getBusBuffer(buffer, true, 0);
-    const bool hasInput = getBusCount(true) > 0 && getBus(true, 0)->isEnabled()
-                          && inBus.getNumChannels() >= 2;
-    float* L = buffer.getWritePointer(0);
-    float* R = buffer.getWritePointer(1);
-    const float* inL = hasInput ? inBus.getReadPointer(0) : nullptr;
-    const float* inR = hasInput ? inBus.getReadPointer(1) : nullptr;
+    // ---- 1. Copy inputs out first: input and output channels can alias. -------
+    float* refL = scratch.getWritePointer(0);
+    float* refR = scratch.getWritePointer(1);
+    float* intL = scratch.getWritePointer(2);
+    float* intR = scratch.getWritePointer(3);
 
-    // ---- Synth: sample-accurate MIDI ---------------------------------------
+    // Sidechain reference (aux bus 1): mono or stereo, with its own input gain.
+    bool hasRef = false;
+    if (getBusCount(true) > 1 && getBus(true, 1)->isEnabled())
+    {
+        auto sc = getBusBuffer(buffer, true, 1);
+        if (sc.getNumChannels() >= 1)
+        {
+            scGain.setTarget(juce::Decibels::decibelsToGain(scParams.inputGain->load()));
+            const float* a = sc.getReadPointer(0);
+            const float* b = sc.getReadPointer(juce::jmin(1, sc.getNumChannels() - 1));
+            for (int i = 0; i < n; ++i) { const float g = scGain.next(); refL[i] = a[i] * g; refR[i] = b[i] * g; }
+            hasRef = true;
+        }
+    }
+
+    // FX: the track input is the internal signal (bus 0). Instrument: no main input.
+    bool hasMain = false;
+   #if ! AMBIENT_IS_INSTRUMENT
+    if (getBusCount(true) > 0 && getBus(true, 0)->isEnabled())
+    {
+        auto in = getBusBuffer(buffer, true, 0);
+        if (in.getNumChannels() >= 2)
+        {
+            inputGain.setTarget(juce::Decibels::decibelsToGain(pInputGain->load(), -60.0f));
+            const float* a = in.getReadPointer(0);
+            const float* b = in.getReadPointer(1);
+            for (int i = 0; i < n; ++i) { const float g = inputGain.next(); intL[i] = a[i] * g; intR[i] = b[i] * g; }
+            hasMain = true;
+        }
+    }
+   #endif
+    if (! hasMain) { juce::FloatVectorOperations::clear(intL, n); juce::FloatVectorOperations::clear(intR, n); }
+
+    // ---- 2. Synth: sample-accurate MIDI ---------------------------------------
     float* s = synthBuffer.getWritePointer(0);
     juce::FloatVectorOperations::clear(s, n);
     int pos = 0;
@@ -93,32 +187,35 @@ void AmbientProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     }
     synth.render(s, pos, n);
     const bool synthOn = pBypassSynth->load() < 0.5f && AMBIENT_IS_INSTRUMENT;
+    if (synthOn)
+    {
+        juce::FloatVectorOperations::add(intL, s, n);
+        juce::FloatVectorOperations::add(intR, s, n);
+    }
 
-    // ---- Mix ----------------------------------------------------------------
+    // ---- 3. Frequency sidechain: attenuates the INTERNAL signal only -----------
+    readSidechainParams();
+    ducker.process(intL, intR, hasRef ? refL : nullptr, hasRef ? refR : nullptr, n);
+
+    // ---- 4. Output -------------------------------------------------------------
     masterGain.setTarget(juce::Decibels::decibelsToGain(pMasterGain->load(), -60.0f));
-    inputGain.setTarget (juce::Decibels::decibelsToGain(pInputGain->load(),  -60.0f));
-    sourceMix.setTarget (pSourceMix->load());
-
     float peak = 0.0f, pkL = 0.0f, pkR = 0.0f, pkIn = 0.0f;
+    float* L = buffer.getWritePointer(0);
+    float* R = buffer.getWritePointer(1);
     for (int i = 0; i < n; ++i)
     {
-        const float g = inputGain.next(), mix = sourceMix.next(), mg = masterGain.next();
-        const float syn = synthOn ? s[i] : 0.0f;
-        const float xl = inL ? inL[i] * g : 0.0f;
-        const float xr = inR ? inR[i] * g : 0.0f;
-        // FX target: input always passes; mix only matters for instrument.
-        const float wSyn = AMBIENT_IS_INSTRUMENT ? (1.0f - mix) : 1.0f;
-        const float wIn  = AMBIENT_IS_INSTRUMENT ? mix : 1.0f;
-        float l = (syn * wSyn + xl * wIn) * mg;
-        float r = (syn * wSyn + xr * wIn) * mg;
-        l = softClip(dc[0].process(l));
-        r = softClip(dc[1].process(r));
+        const float mg = masterGain.next();
+        float l = softClip(dc[0].process(intL[i] * mg));
+        float r = softClip(dc[1].process(intR[i] * mg));
         L[i] = l; R[i] = r;
         pkL = std::max(pkL, std::abs(l));
         pkR = std::max(pkR, std::abs(r));
-        if (inL) pkIn = std::max(pkIn, std::max(std::abs(inL[i]), std::abs(inR[i])));
+        if (hasRef) pkIn = std::max(pkIn, std::max(std::abs(refL[i]), std::abs(refR[i])));
     }
     peak = std::max(pkL, pkR);
+
+    if (hasRef && editorOpen.load(std::memory_order_relaxed) && n <= refRing.getCapacity() / 4)
+        refRing.write(refL, refR, n);
 
     for (int ch = 2; ch < buffer.getNumChannels(); ++ch) buffer.clear(ch, 0, n);
     if (sanitize(L, size_t(n)) | sanitize(R, size_t(n))) for (auto& d : dc) d = {};

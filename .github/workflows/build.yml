@@ -18,13 +18,24 @@ jobs:
           key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
 
       - name: Configure
-        run: cmake -B build -A x64
+        run: cmake -B build -A x64 -DAMBIENT_BUILD_SNAPSHOT=ON
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
       - name: Unit tests
         run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Processor self test (real bus layouts, both targets)
+        shell: pwsh
+        run: |
+          $tools = @("AmbientSnapshot", "AmbientSnapshotFX")
+          foreach ($t in $tools) {
+            $exe = Get-ChildItem -Path build -Recurse -Filter "$t.exe" | Where-Object { $_.FullName -match 'Release' } | Select-Object -First 1
+            Write-Host "== $t =="
+            & $exe.FullName --selftest
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
 
       - name: Download pluginval
         shell: pwsh

@@ -131,9 +131,149 @@ static int runBenchmark(const juce::String& filter)
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// Processor-level self test: real AmbientProcessor, real bus layouts.
+static int runSelfTest()
+{
+    int failures = 0;
+    auto check = [&](bool ok, const char* what) { std::printf("[%s] %s\n", ok ? " OK " : "FAIL", what); if (! ok) ++failures; };
+    const double sr = 48000.0; const int block = 480;
+    constexpr double kPi = 3.14159265358979323846;
+
+    auto setParam = [](AmbientProcessor& p, const juce::String& pid, float plain)
+    {
+        if (auto* prm = p.apvts.getParameter(pid)) prm->setValueNotifyingHost(prm->convertTo0to1(plain));
+    };
+
+    // Layout: buses in this order -> inputs: [0] main, [1] sidechain.
+    auto makeLayout = [](const juce::AudioChannelSet& main, const juce::AudioChannelSet& sc)
+    {
+        juce::AudioProcessor::BusesLayout l;
+        l.inputBuses.add(main); l.inputBuses.add(sc);
+        l.outputBuses.add(juce::AudioChannelSet::stereo());
+        return l;
+    };
+
+    for (bool monoSc : { false, true })
+    {
+        AmbientProcessor p;
+        const auto layout = makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                       monoSc ? juce::AudioChannelSet::mono() : juce::AudioChannelSet::stereo());
+        check(p.setBusesLayout(layout), monoSc ? "mono sidechain layout accepted" : "stereo sidechain layout accepted");
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        check(p.getLatencySamples() == 0, "reported latency is 0 samples");
+
+        // Loud kick-like reference, synth bypassed, no main input -> output must be silent.
+        setParam(p, "global.bypassSynth", 1.0f);
+        const int scCh = monoSc ? 1 : 2;
+        const int totalCh = juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels());
+        juce::AudioBuffer<float> buf(totalCh, block);
+        juce::MidiBuffer midi;
+        float leak = 0.0f; double phase = 0.0;
+        for (int b = 0; b < 200; ++b)
+        {
+            buf.clear();
+            auto sc = p.getBusBuffer(buf, true, 1);
+            for (int i = 0; i < block; ++i)
+            {
+                phase += 2.0 * kPi * 55.0 / sr;
+                for (int c = 0; c < scCh; ++c) sc.setSample(c, i, 0.9f * float(std::sin(phase)));
+            }
+            p.processBlock(buf, midi);
+            for (int c = 0; c < 2; ++c) leak = juce::jmax(leak, buf.getMagnitude(c, 0, block));
+        }
+        check(leak == 0.0f, "no sidechain leakage into the output (synth bypassed)");
+        check(p.sidechainTelemetry().referencePresent.load(), "sidechain reference detected");
+
+        // Listen: the reference is monitored on purpose.
+        setParam(p, "sc.listen", 1.0f);
+        float heard = 0.0f;
+        for (int b = 0; b < 20; ++b)
+        {
+            buf.clear();
+            auto sc = p.getBusBuffer(buf, true, 1);
+            for (int i = 0; i < block; ++i) { phase += 2.0 * kPi * 55.0 / sr; for (int c = 0; c < scCh; ++c) sc.setSample(c, i, 0.5f * float(std::sin(phase))); }
+            p.processBlock(buf, midi);
+            heard = juce::jmax(heard, buf.getMagnitude(0, 0, block));
+        }
+        check(heard > 0.3f, "Listen monitors the sidechain reference");
+        p.releaseResources();
+    }
+
+    // Ducking through the real plugin: internal 55 Hz + 880 Hz, reference kicks at 55 Hz.
+    {
+        AmbientProcessor p;
+        p.setBusesLayout(makeLayout(AMBIENT_IS_INSTRUMENT ? juce::AudioChannelSet::disabled() : juce::AudioChannelSet::stereo(),
+                                    juce::AudioChannelSet::stereo()));
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        setParam(p, "sc.auto", 0.0f);
+        setParam(p, "sc.band1.freq", 55.0f);
+        setParam(p, "sc.band1.threshold", -36.0f);
+        float maxGr = 0.0f;
+        const int totalCh = juce::jmax(p.getTotalNumInputChannels(), p.getTotalNumOutputChannels());
+        juce::AudioBuffer<float> buf(totalCh, block);
+        juce::MidiBuffer midi;
+       #if AMBIENT_IS_INSTRUMENT
+        { juce::MidiBuffer on; on.addEvent(juce::MidiMessage::noteOn(1, 33, 1.0f), 0); buf.clear(); p.processBlock(buf, on); } // A1 = 55 Hz test tone
+       #endif
+        double ph = 0.0, ph2 = 0.0; size_t t = 0;
+        const size_t period = size_t(sr * 60.0 / 145.0);
+        for (int b = 0; b < 300; ++b)
+        {
+            buf.clear();
+            auto sc = p.getBusBuffer(buf, true, 1);
+           #if ! AMBIENT_IS_INSTRUMENT
+            auto in = p.getBusBuffer(buf, true, 0);
+           #endif
+            for (int i = 0; i < block; ++i, ++t)
+            {
+                const double tt = double(t % period) / sr;
+                ph += 2.0 * kPi * (55.0 + 85.0 * std::exp(-tt / 0.025)) / sr;
+                const float k = 0.8f * float(std::exp(-tt / 0.16) * std::sin(ph));
+                sc.setSample(0, i, k); sc.setSample(1, i, k);
+               #if ! AMBIENT_IS_INSTRUMENT
+                ph2 += 2.0 * kPi * 55.0 / sr;
+                const float d = 0.25f * float(std::sin(ph2) + std::sin(ph2 * 16.0));
+                in.setSample(0, i, d); in.setSample(1, i, d);
+               #endif
+            }
+            p.processBlock(buf, midi);
+            maxGr = juce::jmax(maxGr, p.sidechainTelemetry().maxReductionDb.load());
+        }
+        std::printf("       max gain reduction through the plugin: %.2f dB, transients: %u\n", maxGr, p.sidechainTelemetry().transientCount.load());
+        check(maxGr > 1.0f && maxGr <= 6.0f + 1e-3f, "plugin ducks the conflicting band within the default 6 dB cap");
+        const auto expected = uint32_t((t + period - 1) / period); // kicks actually sent
+        check(p.sidechainTelemetry().transientCount.load() == expected, "every kick detected exactly once through the sidechain bus");
+    }
+
+    // State: v1 session (no sc.* params) loads, migrates to v2, keeps known values.
+    {
+        AmbientProcessor p;
+        juce::ValueTree v1("AmbientLab");
+        v1.setProperty("stateVersion", 1, nullptr);
+        juce::ValueTree prm("PARAM"); prm.setProperty("id", "global.masterGain", nullptr); prm.setProperty("value", -6.0f, nullptr);
+        v1.addChild(prm, -1, nullptr);
+        juce::MemoryBlock mb;
+        juce::AudioProcessor::copyXmlToBinary(*v1.createXml(), mb);
+        p.setStateInformation(mb.getData(), int(mb.getSize()));
+        const float mg = p.apvts.getRawParameterValue("global.masterGain")->load();
+        check(std::abs(mg + 6.0f) < 1e-3f, "v1 state: existing parameter value restored");
+        check(p.apvts.getRawParameterValue("sc.depth")->load() == 0.7f, "v1 state: new sidechain parameters take defaults");
+        juce::MemoryBlock out; p.getStateInformation(out);
+        auto xml = juce::AudioProcessor::getXmlFromBinary(out.getData(), int(out.getSize()));
+        check(xml != nullptr && xml->getIntAttribute("stateVersion") == 2, "state saved as version 2");
+    }
+
+    std::printf("%s (%d failure%s)\n", failures == 0 ? "SELFTEST PASSED" : "SELFTEST FAILED", failures, failures == 1 ? "" : "s");
+    return failures == 0 ? 0 : 1;
+}
+
 int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String(argv[1]) == "--selftest") return runSelfTest();
     if (argc > 1 && juce::String(argv[1]) == "--bench") return runBenchmark(argc > 2 ? juce::String(argv[2]) : juce::String());
     const juce::File outDir(argc > 1 ? juce::File::getCurrentWorkingDirectory().getChildFile(argv[1])
                                      : juce::File::getCurrentWorkingDirectory().getChildFile("snapshots"));
