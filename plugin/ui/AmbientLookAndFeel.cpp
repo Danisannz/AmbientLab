@@ -22,6 +22,27 @@ AmbientLookAndFeel::AmbientLookAndFeel()
     setColour(juce::TooltipWindow::backgroundColourId, panelHdr);
     setColour(juce::TooltipWindow::textColourId, text);
     setColour(juce::TooltipWindow::outlineColourId, edge);
+    // combo boxes, linear sliders, text fields: dark violet hardware instead of stock grey
+    setColour(juce::ComboBox::backgroundColourId, bgRaised);
+    setColour(juce::ComboBox::outlineColourId, edge);
+    setColour(juce::ComboBox::textColourId, text);
+    setColour(juce::ComboBox::arrowColourId, uvBright);
+    setColour(juce::ComboBox::focusedOutlineColourId, uv);
+    setColour(juce::ComboBox::buttonColourId, bgRaised);
+    setColour(juce::Slider::backgroundColourId, bgDeep);
+    setColour(juce::Slider::trackColourId, uv.withAlpha(0.6f));
+    setColour(juce::Slider::textBoxTextColourId, text);
+    setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    setColour(juce::TextEditor::backgroundColourId, bgDeep);
+    setColour(juce::TextEditor::textColourId, text);
+    setColour(juce::TextEditor::outlineColourId, edge);
+    setColour(juce::TextEditor::focusedOutlineColourId, uv);
+    setColour(juce::TextEditor::highlightColourId, uvDeep);
+    setColour(juce::AlertWindow::backgroundColourId, panel);
+    setColour(juce::AlertWindow::textColourId, text);
+    setColour(juce::AlertWindow::outlineColourId, edge);
+    setColour(juce::ScrollBar::thumbColourId, edgeHi);
+    setColour(juce::ListBox::backgroundColourId, bgDeep);
 }
 
 // ============================================================================
@@ -160,12 +181,36 @@ void AmbientLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton&
     g.drawText(b.getButtonText(), r.withTrimmedLeft(9.0f), juce::Justification::centredLeft);
 }
 
+void AmbientLookAndFeel::drawComboBox(juce::Graphics& g, int w, int h, bool down, int, int, int, int, juce::ComboBox& box)
+{
+    auto r = juce::Rectangle<float>(0.0f, 0.0f, float(w), float(h)).reduced(0.5f);
+    const bool hot = box.isMouseOver(true) || down;
+    g.setGradientFill(juce::ColourGradient(bgRaised.brighter(hot ? 0.12f : 0.04f), 0.0f, r.getY(), bgRaised.darker(0.3f), 0.0f, r.getBottom(), false));
+    g.fillRoundedRectangle(r, 4.0f);
+    g.setColour(box.hasKeyboardFocus(true) ? uv : (hot ? edgeHi : edge));
+    g.drawRoundedRectangle(r, 4.0f, 1.0f);
+    // chevron
+    const float cx = r.getRight() - 12.0f, cy = r.getCentreY();
+    juce::Path ch; ch.startNewSubPath(cx - 4.0f, cy - 2.0f); ch.lineTo(cx, cy + 2.0f); ch.lineTo(cx + 4.0f, cy - 2.0f);
+    g.setColour(box.isEnabled() ? uvBright : textFaint);
+    g.strokePath(ch, juce::PathStrokeType(1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+}
+
+void AmbientLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
+{
+    label.setBounds(6, 0, box.getWidth() - 26, box.getHeight());
+    label.setFont(getComboBoxFont(box));
+}
+
 void AmbientLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour&,
                                               bool hi, bool down)
 {
     auto r = b.getLocalBounds().toFloat().reduced(0.5f);
     const bool on = b.getToggleState();
-    g.setColour(on ? uvDeep.withAlpha(0.9f) : (down ? panelHdr.brighter(0.1f) : (hi ? panelHdr : bgRaised)));
+    {
+        const auto base = on ? uvDeep.withAlpha(0.9f) : (down ? panelHdr.brighter(0.1f) : (hi ? panelHdr : bgRaised));
+        g.setGradientFill(juce::ColourGradient(base.brighter(0.06f), 0.0f, 0.0f, base.darker(0.25f), 0.0f, float(b.getHeight()), false));
+    }
     g.fillRoundedRectangle(r, 3.0f);
     g.setColour(on ? uv : (hi ? edgeHi : edge));
     g.drawRoundedRectangle(r, 3.0f, 1.0f);

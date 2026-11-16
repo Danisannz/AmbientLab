@@ -15,22 +15,22 @@
 namespace ambient::ui::theme
 {
 // ---- Surfaces ------------------------------------------------------------------
-inline const juce::Colour bg        { 0xff0a0a0d }; // near-black
-inline const juce::Colour bgRaised  { 0xff111116 }; // graphite
-inline const juce::Colour bgDeep    { 0xff060608 }; // analyzer screens
-inline const juce::Colour panel     { 0xff141419 }; // card body (bottom)
-inline const juce::Colour panelTop  { 0xff1a1a21 }; // card body (top)
-inline const juce::Colour panelHdr  { 0xff1d1d25 }; // card header strip
-inline const juce::Colour edge      { 0xff292932 }; // borders
-inline const juce::Colour edgeHi    { 0xff4b4b58 }; // metallic highlight
-inline const juce::Colour metal     { 0xff8d8c99 }; // fine metallic details
-inline const juce::Colour grid      { 0xff1b1b23 }; // display grid
-inline const juce::Colour gridHi    { 0xff2a2a35 }; // major grid lines
+inline const juce::Colour bg        { 0xff0a0810 }; // near-black, violet tint
+inline const juce::Colour bgRaised  { 0xff14111c }; // raised graphite (controls)
+inline const juce::Colour bgDeep    { 0xff06050a }; // screens / recessed displays
+inline const juce::Colour panel     { 0xff0e0b14 }; // card body (bottom)
+inline const juce::Colour panelTop  { 0xff16121e }; // card body (top)
+inline const juce::Colour panelHdr  { 0xff1a1524 }; // card header strip
+inline const juce::Colour edge      { 0xff2a2139 }; // borders (ultraviolet-tinted)
+inline const juce::Colour edgeHi    { 0xff4b3d66 }; // highlight
+inline const juce::Colour metal     { 0xff8c84a6 }; // fine metallic details
+inline const juce::Colour grid      { 0xff19142a }; // display grid
+inline const juce::Colour gridHi    { 0xff2a2140 }; // major grid lines
 
 // ---- Text ------------------------------------------------------------------------
 inline const juce::Colour text      { 0xffe6e4ec };
-inline const juce::Colour textDim   { 0xff9b98a8 };
-inline const juce::Colour textFaint { 0xff605d6e };
+inline const juce::Colour textDim   { 0xffa19bb3 };
+inline const juce::Colour textFaint { 0xff6a6380 };
 
 // ---- Accents ---------------------------------------------------------------------
 inline const juce::Colour uv        { 0xff9145ff }; // ultraviolet (active)

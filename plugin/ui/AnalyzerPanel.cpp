@@ -132,26 +132,8 @@ void AnalyzerPanel::paint(juce::Graphics& g)
     paintStart = juce::Time::getMillisecondCounterHiRes();
 
     auto r = getLocalBounds().toFloat().reduced(0.5f);
-    juce::ColourGradient bodyGrad(panelTop.withAlpha(0.97f), 0.0f, r.getY(), panel.withAlpha(0.97f), 0.0f, r.getBottom(), false);
-    g.setGradientFill(bodyGrad);
-    g.fillRoundedRectangle(r, cornerRadius);
-    g.setColour(edge);
-    g.drawRoundedRectangle(r, cornerRadius, 1.0f);
-
-    // Header
     auto hdr = headerArea.toFloat();
-    {
-        juce::Graphics::ScopedSaveState s(g);
-        juce::Path cardShape; cardShape.addRoundedRectangle(r, cornerRadius);
-        g.reduceClipRegion(cardShape);
-        g.setColour(panelHdr);
-        g.fillRect(hdr);
-        juce::ColourGradient acc(lime.withAlpha(0.8f), hdr.getX(), 0.0f, lime.withAlpha(0.0f), hdr.getX() + hdr.getWidth() * 0.4f, 0.0f, false);
-        g.setGradientFill(acc);
-        g.fillRect(hdr.withHeight(1.5f));
-        g.setColour(juce::Colours::black.withAlpha(0.5f));
-        g.fillRect(hdr.withY(hdr.getBottom() - 1.0f).withHeight(1.0f));
-    }
+    drawPanelSurface(g, r, cornerRadius, hdr.getBottom() - r.getY(), SurfaceTone::Deep, lime, true);
     drawGlyph(g, Glyph::Lfo, juce::Rectangle<float>(hdr.getX() + 12.0f, hdr.getY(), 18.0f, hdr.getHeight()).reduced(0.0f, 9.0f), lime, 1.2f);
     g.setColour(text);
     g.setFont(heading(13.0f, false, 0.07f));

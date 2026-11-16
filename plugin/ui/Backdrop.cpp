@@ -104,8 +104,10 @@ void Backdrop::renderWindow(juce::Graphics& g, float w, float h, GraphicsQuality
 // ============================================================================
 void Backdrop::renderHeader(juce::Graphics& g, float w, float h, juce::Point<float> focus, GraphicsQuality q)
 {
+    // FROZEN: the approved header artwork keeps its original colours, independent of the panel theme.
+    static const juce::Colour hdrBg { 0xff0a0a0d }, hdrBgRaised { 0xff111116 }, hdrEdge { 0xff292932 }, hdrMetal { 0xff8d8c99 };
     const bool hq = q == GraphicsQuality::High;
-    juce::ColourGradient base(bgRaised, 0.0f, 0.0f, bg, 0.0f, h, false);
+    juce::ColourGradient base(hdrBgRaised, 0.0f, 0.0f, hdrBg, 0.0f, h, false);
     g.setGradientFill(base);
     g.fillRect(0.0f, 0.0f, w, h);
 
@@ -163,7 +165,7 @@ void Backdrop::renderHeader(juce::Graphics& g, float w, float h, juce::Point<flo
         const float dy = (rng.nextBool() ? 1.0f : -1.0f) * h * (0.08f + 0.12f * rng.nextFloat());
         x -= std::abs(dy); y += dy; tr.lineTo(x, y);
         x -= w * (0.02f + 0.05f * rng.nextFloat()); tr.lineTo(x, y);
-        g.setColour(metal.withAlpha(0.10f));
+        g.setColour(hdrMetal.withAlpha(0.10f));
         g.strokePath(tr, juce::PathStrokeType(1.0f));
         g.setColour((i % 3 == 0 ? lime : uvBright).withAlpha(0.35f));
         g.fillEllipse(x - 1.6f, y - 1.6f, 3.2f, 3.2f);
@@ -177,7 +179,7 @@ void Backdrop::renderHeader(juce::Graphics& g, float w, float h, juce::Point<flo
         g.fillRect(0.0f, 0.0f, w, h);
     }
 
-    // Luminous lower edge
+    // Luminous lower hdrEdge
     juce::ColourGradient edgeLine(uv.withAlpha(0.0f), 0.0f, 0.0f, uv.withAlpha(0.0f), w, 0.0f, false);
     edgeLine.addColour(0.12, uv.withAlpha(0.65f));
     edgeLine.addColour(0.55, magenta.withAlpha(0.35f));

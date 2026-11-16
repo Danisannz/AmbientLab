@@ -81,6 +81,7 @@ AmbientEditor::AmbientEditor(AmbientProcessor& p)
 
     // Macros footer
     content.addAndMakeVisible(macroCard);
+    macroCard.setTone(ambient::ui::SurfaceTone::Accent);
     for (size_t i = 0; i < ids::macros.size(); ++i)
     {
         auto k = std::make_unique<RotaryKnob>(proc.apvts, id(ids::macros[i]), "Macro " + juce::String(int(i) + 1));

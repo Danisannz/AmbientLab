@@ -24,6 +24,8 @@ public:
 
     void drawToggleButton(juce::Graphics&, juce::ToggleButton&, bool highlighted, bool down) override;
 
+    void drawComboBox(juce::Graphics&, int, int, bool, int, int, int, int, juce::ComboBox&) override;
+    void positionComboBoxText(juce::ComboBox&, juce::Label&) override;
     void drawButtonBackground(juce::Graphics&, juce::Button&, const juce::Colour&,
                               bool highlighted, bool down) override;
     void drawButtonText(juce::Graphics&, juce::TextButton&, bool highlighted, bool down) override;

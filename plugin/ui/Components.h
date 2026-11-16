@@ -63,6 +63,15 @@ void drawGlyph(juce::Graphics&, Glyph, juce::Rectangle<float>, juce::Colour, flo
     A card with no engine behind it is a *placeholder*: it shows the module's
     glyph, what it will contain and the development stage that delivers it.
     It never contains controls. */
+/** Panel surface tones: Standard (module cards), Deep (screens / analyzer: recessed),
+    Accent (performance strip: faint magenta edge). */
+enum class SurfaceTone { Standard, Deep, Accent };
+
+/** Shared dark-hardware surface: layered violet-graphite body, faint ultraviolet sheen,
+    micro-texture, hairline highlight, ultraviolet border; optional header strip. */
+void drawPanelSurface(juce::Graphics&, juce::Rectangle<float> r, float radius, float headerHeight,
+                      SurfaceTone tone, juce::Colour accent, bool accentLit, float scale = 1.0f);
+
 class ModuleCard : public juce::Component
 {
 public:
@@ -75,6 +84,7 @@ public:
     void setGlyph(Glyph g) { glyph = g; repaint(); }
     /** Hide the header status LED (e.g. when a header button takes its place). */
     void setHeaderLedVisible(bool v) { headerLed = v; repaint(); }
+    void setTone(SurfaceTone t) { tone = t; repaint(); }
     /** Square slot at the right end of the header for a small header control. */
     juce::Rectangle<int> getHeaderControlBounds() const;
 
@@ -89,6 +99,7 @@ private:
     int stage = 0;
     bool active = true, headerLed = true;
     float scale = 1.0f;
+    SurfaceTone tone = SurfaceTone::Standard;
 };
 
 // ============================================================================

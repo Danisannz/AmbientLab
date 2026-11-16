@@ -271,39 +271,97 @@ juce::Rectangle<int> ModuleCard::getContentBounds() const
     return getLocalBounds().withTrimmedTop(int(cardHeader * scale)).reduced(int(10 * scale), int(6 * scale));
 }
 
+namespace
+{
+/** 96x96 tile: sparse ultraviolet grain + faint diagonal hairlines (cached, drawn at very low alpha). */
+const juce::Image& surfaceTexture()
+{
+    static const juce::Image img = []
+    {
+        juce::Image im(juce::Image::ARGB, 96, 96, true);
+        juce::Graphics g(im);
+        juce::Random rng(0x51AB);
+        for (int i = 0; i < 260; ++i)
+        {
+            g.setColour((rng.nextFloat() < 0.3f ? uvBright : juce::Colours::white).withAlpha(0.05f + 0.10f * rng.nextFloat()));
+            g.fillRect(float(rng.nextInt(96)), float(rng.nextInt(96)), 1.0f, 1.0f);
+        }
+        g.setColour(uvBright.withAlpha(0.05f));
+        for (int k = -96; k < 96; k += 12) g.drawLine(float(k), 96.0f, float(k + 96), 0.0f, 0.6f);
+        return im;
+    }();
+    return img;
+}
+} // namespace
+
+void drawPanelSurface(juce::Graphics& g, juce::Rectangle<float> r, float rad, float hh, SurfaceTone tone, juce::Colour accent, bool lit, float scale)
+{
+    juce::Path shape; shape.addRoundedRectangle(r, rad);
+    const bool deep = tone == SurfaceTone::Deep, acc = tone == SurfaceTone::Accent;
+    const juce::Colour top = deep ? juce::Colour(0xff100d17) : (acc ? juce::Colour(0xff1a1320) : panelTop);
+    const juce::Colour bot = deep ? juce::Colour(0xff09070d) : (acc ? juce::Colour(0xff100b15) : panel);
+
+    // drop shadow: panels sit slightly above the page
+    juce::DropShadow(juce::Colours::black.withAlpha(0.55f), int(10 * scale), { 0, int(3 * scale) }).drawForPath(g, shape);
+
+    {
+    juce::Graphics::ScopedSaveState ss(g);
+    g.reduceClipRegion(shape);
+    g.setGradientFill(juce::ColourGradient(top, 0.0f, r.getY(), bot, 0.0f, r.getBottom(), false));
+    g.fillRect(r);
+    // faint ultraviolet sheen from the top-left, magenta breath bottom-right on the accent tone
+    g.setGradientFill(juce::ColourGradient(uv.withAlpha(deep ? 0.035f : 0.06f), r.getX(), r.getY(),
+                                           uv.withAlpha(0.0f), r.getX() + r.getWidth() * 0.55f, r.getY() + r.getHeight() * 0.7f, true));
+    g.fillRect(r);
+    if (acc)
+    {
+        g.setGradientFill(juce::ColourGradient(magenta.withAlpha(0.07f), r.getRight(), r.getBottom(),
+                                               magenta.withAlpha(0.0f), r.getRight() - r.getWidth() * 0.4f, r.getY(), true));
+        g.fillRect(r);
+    }
+    // micro texture (barely visible)
+    g.setTiledImageFill(surfaceTexture(), 0, 0, deep ? 0.25f : 0.4f);
+    g.fillRect(r);
+
+    // header strip
+    if (hh > 0.0f)
+    {
+        auto hdr = r.withHeight(hh);
+        g.setGradientFill(juce::ColourGradient(panelHdr.withAlpha(0.95f), 0.0f, hdr.getY(), panelHdr.darker(0.25f).withAlpha(0.95f), 0.0f, hdr.getBottom(), false));
+        g.fillRect(hdr);
+        if (lit)
+        {
+            g.setGradientFill(juce::ColourGradient(accent.withAlpha(0.9f), hdr.getX(), 0.0f, accent.withAlpha(0.0f), hdr.getX() + hdr.getWidth() * 0.45f, 0.0f, false));
+            g.fillRect(hdr.withHeight(1.5f * scale));
+        }
+        g.setColour(juce::Colours::black.withAlpha(0.55f));
+        g.fillRect(hdr.withY(hdr.getBottom() - 1.0f).withHeight(1.0f));
+        g.setColour(uv.withAlpha(0.10f));
+        g.fillRect(hdr.withY(hdr.getBottom()).withHeight(1.0f));
+    }
+    else
+    {
+        g.setColour(uvBright.withAlpha(0.08f));     // hairline top highlight
+        g.fillRect(r.withHeight(1.0f).reduced(rad, 0.0f));
+    }
+    }
+
+    // fine ultraviolet border (magenta-tinted on the accent tone)
+    g.setColour((acc ? edge.interpolatedWith(magentaDeep, 0.5f) : edge).withAlpha(0.95f));
+    g.drawRoundedRectangle(r, rad, 1.0f);
+}
+
 void ModuleCard::paint(juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat().reduced(0.5f);
     const float rad = cornerRadius * scale;
     const bool lit = active && ! isPlaceholder();
 
-    // Body: clean graphite surface
-    juce::ColourGradient bodyG(panelTop.withAlpha(0.96f), 0.0f, r.getY(), panel.withAlpha(0.96f), 0.0f, r.getBottom(), false);
-    g.setGradientFill(bodyG);
-    g.fillRoundedRectangle(r, rad);
-
-    // Header strip
     const float hh = cardHeader * scale;
     auto hdr = r.withHeight(hh);
-    {
-        juce::Graphics::ScopedSaveState s(g);
-        juce::Path cardShape; cardShape.addRoundedRectangle(r, rad);
-        g.reduceClipRegion(cardShape);
-        g.setColour(panelHdr);
-        g.fillRect(hdr);
-        if (lit) // ultraviolet accent bar marks a live module
-        {
-            juce::ColourGradient acc(uv.withAlpha(0.9f), hdr.getX(), 0.0f, uv.withAlpha(0.0f), hdr.getX() + hdr.getWidth() * 0.45f, 0.0f, false);
-            g.setGradientFill(acc);
-            g.fillRect(hdr.withHeight(1.5f * scale));
-        }
-        g.setColour(juce::Colours::black.withAlpha(0.5f));
-        g.fillRect(hdr.withY(hdr.getBottom() - 1.0f).withHeight(1.0f));
-    }
+    drawPanelSurface(g, r, rad, hh, tone, uv, lit, scale);
 
-    // Border + metallic corner brackets
-    g.setColour(edge);
-    g.drawRoundedRectangle(r, rad, 1.0f);
+    // metallic corner brackets
     {
         const float L = 7.0f * scale, i = 2.5f * scale;
         g.setColour(metal.withAlpha(0.28f));
